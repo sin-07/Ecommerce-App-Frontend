@@ -1,28 +1,20 @@
 import axios from 'axios';
-import Constants from 'expo-constants';
 
-const getExpoHostIp = () => {
-  const hostUri =
-    (Constants.expoConfig as { hostUri?: string } | null)?.hostUri ||
-    (Constants as unknown as { expoGoConfig?: { debuggerHost?: string } }).expoGoConfig?.debuggerHost ||
-    '';
+/**
+ * AP Enterprises - Centralized API Configuration
+ * Production Vercel Backend: https://ecommerce-app-backend-blush.vercel.app/api
+ */
+export const PRODUCTION_API_URL = 'https://ecommerce-app-backend-blush.vercel.app/api';
 
-  if (!hostUri) return null;
-  return hostUri.split(':')[0] || null;
-};
-
-const buildFallbackApiUrl = () => {
-  const hostIp = getExpoHostIp();
-  if (hostIp) {
-    return `http://${hostIp}:5000/api`;
-  }
-
-  return 'http://localhost:5000/api';
-};
-
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || buildFallbackApiUrl();
+export const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_URL.trim().length > 0
+    ? process.env.EXPO_PUBLIC_API_URL.trim()
+    : PRODUCTION_API_URL;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
 });
