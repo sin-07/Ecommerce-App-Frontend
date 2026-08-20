@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { toggleWishlist, clearWishlist } from '../redux/slices/wishlistSlice';
@@ -119,8 +120,10 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
     [navigation, handleAddToCart, handleRemove]
   );
 
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* HEADER BAR */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={8}>
@@ -166,11 +169,11 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
           data={items}
           keyExtractor={(item) => item._id}
           renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(24, insets.bottom + 16) }]}
           showsVerticalScrollIndicator={false}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 };
 

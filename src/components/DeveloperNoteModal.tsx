@@ -10,6 +10,7 @@ import {
   View
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, shadows } from '../constants/theme';
 
 type Props = {
@@ -42,6 +43,8 @@ export const DeveloperNoteModal: React.FC<Props> = ({ visible, onClose }) => {
     }
   }, [visible, scaleAnim, opacityAnim]);
 
+  const insets = useSafeAreaInsets();
+
   if (!visible) return null;
 
   return (
@@ -52,7 +55,15 @@ export const DeveloperNoteModal: React.FC<Props> = ({ visible, onClose }) => {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={styles.backdrop}>
+      <View
+        style={[
+          styles.backdrop,
+          {
+            paddingTop: Math.max(20, insets.top + 12),
+            paddingBottom: Math.max(20, insets.bottom + 12)
+          }
+        ]}
+      >
         <Pressable style={styles.backdropPress} onPress={onClose} />
 
         <Animated.View

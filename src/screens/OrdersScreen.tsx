@@ -12,7 +12,7 @@ import {
   View
 } from 'react-native';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { EmptyState, ErrorView, LoadingView } from '../components/StateViews';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
@@ -114,6 +114,7 @@ const getItemUnit = (item: OrderItem): string => {
 
 export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
+  const insets = useSafeAreaInsets();
   const { user } = useAppSelector((state) => state.auth);
   const { items, loading, error } = useAppSelector((state) => state.orders);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -186,7 +187,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         {header}
         <LoadingView label="Loading wholesale orders..." />
       </SafeAreaView>
@@ -195,7 +196,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         {header}
         <ErrorView
           message={error}
@@ -233,7 +234,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
         <FlatList
           data={items}
           keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 20) }]}
           renderItem={({ item }) => {
             const tone = statusTone(item.status);
             const isExpanded = Boolean(expandedOrders[item._id]);

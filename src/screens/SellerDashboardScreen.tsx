@@ -7,13 +7,13 @@ import {
   Alert,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { AppButton } from '../components/AppButton';
 import { AppInput } from '../components/AppInput';
@@ -368,7 +368,7 @@ export const SellerDashboardScreen: React.FC<Props> = ({ navigation, route }) =>
   }, [route.params?.openSection, route.params?.editProduct?._id]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
           <View style={styles.heroTop}>

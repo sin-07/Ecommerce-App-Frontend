@@ -12,6 +12,7 @@ import {
   TextInput as NativeTextInput,
   View
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -96,19 +97,24 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const displayError = validationError || error;
+  const insets = useSafeAreaInsets();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <BeverageLoader visible={signingIn} mode="auth" title="AP Enterprises" subtitle="Verifying your wholesale credentials..." />
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <BeverageLoader visible={signingIn} mode="auth" title="AP Enterprises" subtitle="Verifying your wholesale credentials..." />
+
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: Math.max(28, insets.bottom + 20) }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         {/* BRAND HEADER */}
         <View style={styles.brandHeader}>
           <View style={styles.logoBadge}>
@@ -272,7 +278,8 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         visible={developerNoteVisible}
         onClose={() => setDeveloperNoteVisible(false)}
       />
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
@@ -280,6 +287,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg
+  },
+  flex: {
+    flex: 1
   },
   scrollContent: {
     flexGrow: 1,

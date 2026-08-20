@@ -324,7 +324,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         {header}
         <LoadingView label="Loading your beverage cart..." />
       </SafeAreaView>
@@ -333,7 +333,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
   if (!items.length && !successModalVisible) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         {header}
         <View style={styles.emptyWrap}>
           <EmptyState
