@@ -7,6 +7,7 @@ import { restoreSession } from '../redux/slices/authSlice';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
 import { AdminProductsScreen } from '../screens/AdminProductsScreen';
 import { AddProductScreen } from '../screens/AddProductScreen';
+import { CatalogScreen } from '../screens/CatalogScreen';
 import { CartScreen } from '../screens/CartScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { HomeScreen } from '../screens/HomeScreen';
@@ -53,6 +54,7 @@ export const RootNavigator: React.FC = () => {
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
+            <Stack.Screen name="Catalog" component={CatalogScreen} options={{ headerShown: false }} />
           </>
         ) : null}
 
@@ -64,12 +66,14 @@ export const RootNavigator: React.FC = () => {
             <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Catalog" component={CatalogScreen} options={{ headerShown: false }} />
           </>
         ) : null}
 
         {!restoring && (!user || user?.role === 'buyer') ? (
           <>
             <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Catalog" component={CatalogScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
             <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Cart" component={CartScreen} options={{ headerShown: false }} />

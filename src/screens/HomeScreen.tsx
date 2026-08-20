@@ -7,9 +7,7 @@ import {
   BackHandler,
   Dimensions,
   Easing,
-  FlatList,
   Image,
-  LayoutAnimation,
   PanResponder,
   Pressable,
   RefreshControl,
@@ -20,19 +18,15 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-
-const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../constants/api';
 import { AuthPromptAction, AuthPromptModal } from '../components/AuthPromptModal';
-import { ProductCard } from '../components/ProductCard';
-import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
-import { BeverageLoader } from '../components/BeverageLoader';
+import { CategoryShopCards } from '../components/CategoryShopCards';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
-import { EmptyState, ErrorView } from '../components/StateViews';
-import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
-import { QuickCategoryCards } from '../components/QuickCategoryCards';
 import { HorizontalProductSection } from '../components/HorizontalProductSection';
+import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
+import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
+import { WholesaleCTACard } from '../components/WholesaleCTACard';
 import { WhyChooseUsSection } from '../components/WhyChooseUsSection';
 import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
@@ -40,121 +34,47 @@ import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { logout, setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
-import { clearProducts, fetchProducts, fetchCategories, setCachedProducts } from '../redux/slices/productSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
 import { toast } from '../utils/toast';
 
+const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(320, SCREEN_WIDTH * 0.82);
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
-const CATEGORIES = [
-  { id: '', label: 'All Products', icon: 'storefront-outline' },
-  { id: 'Eggs', label: 'Eggs', icon: 'egg-outline' },
-  { id: 'Beverages', label: 'Beverages', icon: 'cup-water' },
-  { id: 'Existing Products', label: 'Wholesale Supplies', icon: 'cube-outline' }
-];
-
-const AnimatedProductCell: React.FC<{
-  children: React.ReactNode;
-  index: number;
-}> = React.memo(({ children, index }) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(8)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 200,
-        delay: Math.min(index, 6) * 30,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 200,
-        delay: Math.min(index, 6) * 30,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true
-      })
-    ]).start();
-  }, [opacity, translateY, index]);
-
-  return (
-    <Animated.View style={[styles.productCell, { opacity, transform: [{ translateY }] }]}>
-      {children}
-    </Animated.View>
-  );
-});
-
-AnimatedProductCell.displayName = 'AnimatedProductCell';
-
-export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
+export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
-  const { items, loading, loadingMore, error, page, totalPages, categories: backendCategories } = useAppSelector(
-    (state) => state.products
-  );
   const { user } = useAppSelector((state) => state.auth);
   const { items: cartItems } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
 
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState(route.params?.initialCategory || '');
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high'>('all');
-  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadingStorefront, setLoadingStorefront] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
 
-  const getCategoryCount = useCallback(
-    (catId: string) => {
-      if (!catId) {
-        return backendCategories.reduce((sum, c) => sum + (c.count || 0), 0);
-      }
-      const match = backendCategories.find((c) => c.name.toLowerCase() === catId.toLowerCase());
-      return match ? match.count : null;
-    },
-    [backendCategories]
-  );
-
-  // Curated Home Sections (Featured, Bestsellers, New Arrivals)
+  // Storefront Product Preview Lists (2–4 items each from real backend)
+  const [eggProducts, setEggProducts] = useState<Product[]>([]);
+  const [beverageProducts, setBeverageProducts] = useState<Product[]>([]);
+  const [wholesaleProducts, setWholesaleProducts] = useState<Product[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [bestsellerProducts, setBestsellerProducts] = useState<Product[]>([]);
-  const [newArrivals, setNewArrivals] = useState<Product[]>([]);
-  const [loadingCurated, setLoadingCurated] = useState(false);
-
-  const fetchCuratedSections = useCallback(async () => {
-    setLoadingCurated(true);
-    try {
-      const [featRes, bestRes, newRes] = await Promise.all([
-        api.get('/products', { params: { isFeatured: true, limit: 8 } }),
-        api.get('/products', { params: { isBestSeller: true, limit: 8 } }),
-        api.get('/products', { params: { sortBy: 'newest', limit: 8 } })
-      ]);
-      if (featRes.data?.data) {
-        setFeaturedProducts(featRes.data.data);
-      }
-      if (bestRes.data?.data) {
-        setBestsellerProducts(bestRes.data.data);
-      }
-      if (newRes.data?.data) {
-        setNewArrivals(newRes.data.data);
-      }
-    } catch (err) {
-      // Graceful fallback
-    } finally {
-      setLoadingCurated(false);
-    }
-  }, []);
+  const [popularProducts, setPopularProducts] = useState<Product[]>([]);
 
   // Auth Prompt Modal State for Guest Users
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [authModalAction, setAuthModalAction] = useState<AuthPromptAction>('general');
   const [authModalProduct, setAuthModalProduct] = useState<Product | null>(null);
   const [authModalQuantity, setAuthModalQuantity] = useState(1);
+
+  // Drawer Animation State
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+  const overlayAnim = useRef(new Animated.Value(0)).current;
+  const cartScale = useRef(new Animated.Value(1)).current;
+  const isClosingRef = useRef(false);
 
   const triggerAuthPrompt = useCallback(
     (action: AuthPromptAction, product?: Product, quantity?: number) => {
@@ -196,103 +116,47 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     navigation.navigate('Register');
   }, [dispatch, authModalProduct, authModalAction, authModalQuantity, navigation]);
 
-  // In-Memory Category & Filter Cache for Instant Switching
-  const categoryCacheRef = useRef<Record<string, { items: Product[]; page: number; totalPages: number }>>({});
-  const latestRequestId = useRef(0);
+  // Fetch Storefront Curated Sections
+  const fetchStorefrontData = useCallback(async () => {
+    try {
+      const [eggRes, bevRes, wholeRes, featRes, popRes] = await Promise.all([
+        api.get('/products', { params: { category: 'Eggs', limit: 4 } }),
+        api.get('/products', { params: { category: 'Beverages', limit: 4 } }),
+        api.get('/products', { params: { category: 'Existing Products', limit: 4 } }),
+        api.get('/products', { params: { isFeatured: true, limit: 4 } }),
+        api.get('/products', { params: { isBestSeller: true, limit: 4 } })
+      ]);
 
-  // Drawer animation state
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-  const overlayAnim = useRef(new Animated.Value(0)).current;
-  const cartScale = useRef(new Animated.Value(1)).current;
-  const isClosingRef = useRef(false);
-
-  // Master execution function for product data fetching & caching
-  const executeProductFetch = useCallback(
-    async (
-      targetCategory: string,
-      targetSearch: string,
-      targetFilter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high',
-      targetPage: number = 1,
-      forceRefresh: boolean = false
-    ) => {
-      let sortBy = 'newest';
-      let isFeatured: boolean | undefined;
-      let isBestSeller: boolean | undefined;
-
-      if (targetFilter === 'featured') isFeatured = true;
-      if (targetFilter === 'bestseller') isBestSeller = true;
-      if (targetFilter === 'price_low') sortBy = 'price_asc';
-      if (targetFilter === 'price_high') sortBy = 'price_desc';
-
-      const cacheKey = `${targetCategory}_${targetSearch.trim().toLowerCase()}_${targetFilter}_${targetPage}`;
-
-      // If cached and not forced refresh, immediately display cached items without waiting
-      if (!forceRefresh && categoryCacheRef.current[cacheKey]) {
-        const cached = categoryCacheRef.current[cacheKey];
-        dispatch(setCachedProducts({ items: cached.items, page: cached.page, totalPages: cached.totalPages }));
-        setIsCategoryLoading(false);
-        return;
-      }
-
-      // If cache miss, activate immediate loading state
-      if (targetPage === 1) {
-        setIsCategoryLoading(true);
-      }
-
-      const reqId = ++latestRequestId.current;
-
-      try {
-        const res = await dispatch(
-          fetchProducts({
-            page: targetPage,
-            limit: 16,
-            search: targetSearch.trim(),
-            category: targetCategory,
-            isFeatured,
-            isBestSeller,
-            sortBy
-          })
-        ).unwrap();
-
-        // Check for race condition: only update if this is still the latest user request
-        if (reqId === latestRequestId.current) {
-          if (res?.data && res?.pagination) {
-            categoryCacheRef.current[cacheKey] = {
-              items: res.data,
-              page: res.pagination.page,
-              totalPages: res.pagination.totalPages
-            };
-          }
-        }
-      } catch (fetchErr) {
-        // Handled via Redux error state
-      } finally {
-        if (reqId === latestRequestId.current) {
-          setIsCategoryLoading(false);
-        }
-      }
-    },
-    [dispatch]
-  );
-
-  // Sync route params if category passed from drawer
-  useEffect(() => {
-    if (route.params?.initialCategory !== undefined) {
-      setCategory(route.params.initialCategory);
+      if (eggRes.data?.data) setEggProducts(eggRes.data.data);
+      if (bevRes.data?.data) setBeverageProducts(bevRes.data.data);
+      if (wholeRes.data?.data) setWholesaleProducts(wholeRes.data.data);
+      if (featRes.data?.data) setFeaturedProducts(featRes.data.data);
+      if (popRes.data?.data) setPopularProducts(popRes.data.data);
+    } catch {
+      // Graceful fallback
+    } finally {
+      setLoadingStorefront(false);
     }
-  }, [route.params?.initialCategory]);
+  }, []);
 
   // Initial load
   useEffect(() => {
-    executeProductFetch(category, search, selectedFilter, 1);
-    fetchCuratedSections();
-    dispatch(fetchCategories());
+    fetchStorefrontData();
     if (user) {
       dispatch(fetchCart());
       dispatch(loadWishlist());
     }
-  }, [dispatch, user]);
+  }, [dispatch, user, fetchStorefrontData]);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([
+      fetchStorefrontData(),
+      user ? dispatch(fetchCart()) : Promise.resolve(),
+      user ? dispatch(loadWishlist()) : Promise.resolve()
+    ]);
+    setIsRefreshing(false);
+  }, [fetchStorefrontData, dispatch, user]);
 
   // Smooth "Lazy" Drawer Open Animation
   const openDrawer = useCallback(() => {
@@ -408,34 +272,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     [drawerOpen, openDrawer]
   );
 
-  // Debounced search effect
-  useEffect(() => {
-    if (!search.trim()) return;
-    const timer = setTimeout(() => {
-      executeProductFetch(category, search, selectedFilter, 1);
-    }, 260);
-    return () => clearTimeout(timer);
-  }, [search, category, selectedFilter, executeProductFetch]);
-
-  const onRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    // Invalidate cache on manual pull-to-refresh
-    categoryCacheRef.current = {};
-    await Promise.all([
-      executeProductFetch(category, search, selectedFilter, 1, true),
-      fetchCuratedSections(),
-      dispatch(fetchCategories()),
-      user ? dispatch(fetchCart()) : Promise.resolve(),
-      user ? dispatch(loadWishlist()) : Promise.resolve()
-    ]);
-    setIsRefreshing(false);
-  }, [category, search, selectedFilter, executeProductFetch, fetchCuratedSections, dispatch, user]);
-
-  const loadNextPage = useCallback(() => {
-    if (loadingMore || page >= totalPages) return;
-    executeProductFetch(category, search, selectedFilter, page + 1, false);
-  }, [loadingMore, page, totalPages, category, search, selectedFilter, executeProductFetch]);
-
   const getCartQuantityForProduct = useCallback(
     (productId: string) => {
       const found = cartItems.find((item) => {
@@ -470,13 +306,19 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [totalCartItems, cartScale]);
 
+  const allKnownProducts = useMemo(() => {
+    const map = new Map<string, Product>();
+    [...eggProducts, ...beverageProducts, ...wholesaleProducts, ...featuredProducts, ...popularProducts].forEach(
+      (p) => {
+        if (p?._id) map.set(p._id, p);
+      }
+    );
+    return map;
+  }, [eggProducts, beverageProducts, wholesaleProducts, featuredProducts, popularProducts]);
+
   const incrementProduct = useCallback(
     async (productId: string, minOrderQuantity: number) => {
-      const target =
-        items.find((item) => item._id === productId) ||
-        featuredProducts.find((p) => p._id === productId) ||
-        bestsellerProducts.find((p) => p._id === productId) ||
-        newArrivals.find((p) => p._id === productId);
+      const target = allKnownProducts.get(productId);
 
       if (!user) {
         if (target) {
@@ -505,7 +347,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         toast.error(cartError || 'Failed to update cart');
       }
     },
-    [dispatch, items, featuredProducts, bestsellerProducts, newArrivals, getCartQuantityForProduct, user, triggerAuthPrompt]
+    [dispatch, allKnownProducts, getCartQuantityForProduct, user, triggerAuthPrompt]
   );
 
   const decrementProduct = useCallback(
@@ -528,61 +370,48 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         toast.error(cartError || 'Failed to update cart');
       }
     },
-    [dispatch, getCartQuantityForProduct]
+    [dispatch, getCartQuantityForProduct, user, triggerAuthPrompt]
   );
 
-  // Immediate category tab selection with instant feedback and loading state
-  const handleSelectCategory = useCallback(
-    (catId: string) => {
-      if (catId === category) return;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setCategory(catId);
-      executeProductFetch(catId, search, selectedFilter, 1);
-    },
-    [category, search, selectedFilter, executeProductFetch]
-  );
+  const handleSearchSubmit = () => {
+    const query = searchQuery.trim();
+    setSearchQuery('');
+    navigation.navigate('Catalog', { initialSearch: query });
+  };
 
-  // Immediate sort filter selection
-  const handleSelectFilter = useCallback(
-    (filter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high') => {
-      if (filter === selectedFilter) return;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setSelectedFilter(filter);
-      executeProductFetch(category, search, filter, 1);
-    },
-    [selectedFilter, category, search, executeProductFetch]
-  );
+  const handleNavigateToCategory = (categoryName: string) => {
+    navigation.navigate('Catalog', { initialCategory: categoryName });
+  };
 
-  const renderProductItem = useCallback(
-    ({ item, index }: { item: Product; index: number }) => (
-      <AnimatedProductCell index={index}>
-        <ProductCard
-          product={item}
-          compact
-          cartCount={getCartQuantityForProduct(item._id)}
-          onView={() => navigation.navigate('ProductDetails', { productId: item._id, product: item })}
-          onIncrementCart={() => incrementProduct(item._id, item.minOrderQuantity || 1)}
-          onDecrementCart={() => decrementProduct(item._id)}
-          onOpenCart={() => {
-            if (!user) {
-              triggerAuthPrompt('cart');
-            } else {
-              navigation.navigate('Cart');
-            }
-          }}
-          onRequireAuth={(action, product, qty) =>
-            triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', product, qty)
-          }
-        />
-      </AnimatedProductCell>
-    ),
-    [getCartQuantityForProduct, incrementProduct, decrementProduct, navigation, user, triggerAuthPrompt]
-  );
+  const handleNavigateToFeatured = () => {
+    navigation.navigate('Catalog', { initialFilter: 'featured' });
+  };
 
-  const renderHeader = useMemo(
-    () => (
-      <View style={styles.headerSection}>
-        {/* BRAND & USER APP BAR */}
+  const handleNavigateToCatalog = () => {
+    navigation.navigate('Catalog', {});
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await dispatch(logout()).unwrap();
+      toast.info('Signed out of trade account.');
+      closeDrawer();
+    } catch {
+      toast.error('Sign out failed');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...edgePanResponder.panHandlers}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
+      >
+        {/* 1. BRAND & USER HEADER */}
         <View style={styles.headerRow}>
           <View style={styles.logoBadge}>
             <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
@@ -595,9 +424,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
             </View>
             <Text style={styles.greeting} numberOfLines={1}>
-              {user ? `Hello, ${user.name?.split(' ')[0] || 'Wholesale Buyer'}` : 'Browse Wholesale Catalog'}
+              {user ? `Hello, ${user.name?.split(' ')[0] || 'Wholesale Buyer'}` : 'B2B Wholesale Supply'}
             </Text>
           </View>
+
           <View style={styles.topActionBtns}>
             {user ? (
               <TouchableOpacity
@@ -621,633 +451,432 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               hitSlop={6}
               accessibilityLabel="Open sidebar menu"
             >
-              <MaterialCommunityIcons
-                name={drawerOpen ? 'close' : 'menu'}
-                size={22}
-                color={colors.text}
-              />
+              <MaterialCommunityIcons name={drawerOpen ? 'close' : 'menu'} size={22} color={colors.text} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* SEARCH BAR */}
+        {/* 2. SEARCH BAR */}
         <View style={styles.searchContainer}>
           <View style={styles.searchField}>
             <Ionicons name="search" size={19} color={colors.primary} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search eggs, coca-cola, pepsi, crates..."
+              placeholder="Search eggs, beverages, wholesale supplies..."
               placeholderTextColor={colors.textMuted}
-              value={search}
-              onChangeText={(text) => {
-                setSearch(text);
-                if (text === '') {
-                  executeProductFetch(category, '', selectedFilter, 1);
-                }
-              }}
+              value={searchQuery}
+              onChangeText={(text) => setSearchQuery(text)}
+              onSubmitEditing={handleSearchSubmit}
               returnKeyType="search"
               autoCapitalize="none"
             />
-            {search.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => {
-                  setSearch('');
-                  executeProductFetch(category, '', selectedFilter, 1);
-                }}
-                hitSlop={6}
-              >
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={6}>
                 <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
-            ) : null}
+            ) : (
+              <TouchableOpacity onPress={handleSearchSubmit} hitSlop={6} style={styles.searchGoBtn}>
+                <Text style={styles.searchGoText}>Search</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
-        {/* DEFAULT HOME SECTIONS (HERO, SPOTLIGHTS, FEATURED, BESTSELLERS, NEW ARRIVALS, VALUE PROPS) */}
-        {!search && !category && selectedFilter === 'all' ? (
-          <>
-            {/* HERO / PROMO BANNER CAROUSEL */}
-            <PromoBannerCarousel onSelectCategory={handleSelectCategory} />
+        {/* 3. PREMIUM HERO CAROUSEL */}
+        <PromoBannerCarousel onSelectCategory={handleNavigateToCategory} />
 
-            {/* CATEGORY TABS WITH LIVE PRODUCT COUNTS */}
-            <View style={styles.categorySection}>
-              <View style={styles.categorySectionHeader}>
-                <Text style={styles.sectionHeading}>Product Categories</Text>
-                <Text style={styles.sectionHeadingSub}>Factory direct supply chains</Text>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-                {CATEGORIES.map((cat) => {
-                  const isSelected = category === cat.id;
-                  const isThisCategoryLoading = isSelected && isCategoryLoading;
-                  const count = getCategoryCount(cat.id);
+        {/* 4. SHOP BY CATEGORY (3 LARGE CARDS) */}
+        <CategoryShopCards onSelectCategory={handleNavigateToCategory} />
 
-                  return (
-                    <TouchableOpacity
-                      key={cat.id || 'all'}
-                      activeOpacity={0.8}
-                      onPress={() => handleSelectCategory(cat.id)}
-                      style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
-                    >
-                      {isThisCategoryLoading ? (
-                        <View style={styles.tabLoader}>
-                          <ActivityIndicator size="small" color={colors.white} />
-                        </View>
-                      ) : (
-                        <MaterialCommunityIcons
-                          name={cat.icon as any}
-                          size={18}
-                          color={isSelected ? colors.white : colors.primary}
-                        />
-                      )}
-                      <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
-                        {cat.label}
-                      </Text>
-                      {count != null && count > 0 ? (
-                        <View style={[styles.categoryCountBadge, isSelected && styles.categoryCountBadgeActive]}>
-                          <Text style={[styles.categoryCountText, isSelected && styles.categoryCountTextActive]}>
-                            {count}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-
-            {/* QUICK CATEGORY SPOTLIGHT CARDS */}
-            <QuickCategoryCards onSelectCategory={handleSelectCategory} activeCategory={category} />
-
-            {/* FEATURED WHOLESALE PRODUCTS */}
-            <HorizontalProductSection
-              title="Featured Wholesale"
-              subtitle="Hand-picked commercial products with volume pricing"
-              badgeLabel="HOT"
-              badgeTone={{ text: '#D97706', bg: '#FEF3C7', border: '#FDE68A' }}
-              icon="star-outline"
-              items={featuredProducts}
-              loading={loadingCurated}
-              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
-              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
-              onDecrementCart={(p) => decrementProduct(p._id)}
-              getCartQuantity={getCartQuantityForProduct}
-              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
-              onSeeAll={() => handleSelectFilter('featured')}
-            />
-
-            {/* BESTSELLERS SECTION */}
-            <HorizontalProductSection
-              title="Bestsellers"
-              subtitle="Top-reordered wholesale items across businesses"
-              badgeLabel="POPULAR"
-              badgeTone={{ text: '#0284C7', bg: '#E0F2FE', border: '#BAE6FD' }}
-              icon="trending-up"
-              items={bestsellerProducts}
-              loading={loadingCurated}
-              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
-              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
-              onDecrementCart={(p) => decrementProduct(p._id)}
-              getCartQuantity={getCartQuantityForProduct}
-              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
-              onSeeAll={() => handleSelectFilter('bestseller')}
-            />
-
-            {/* NEW ARRIVALS SECTION */}
-            <HorizontalProductSection
-              title="New Arrivals"
-              subtitle="Recently added inventory to AP Enterprises catalog"
-              badgeLabel="NEW"
-              badgeTone={{ text: '#10B981', bg: '#ECFDF5', border: '#A7F3D0' }}
-              icon="clock-outline"
-              items={newArrivals}
-              loading={loadingCurated}
-              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
-              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
-              onDecrementCart={(p) => decrementProduct(p._id)}
-              getCartQuantity={getCartQuantityForProduct}
-              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
-            />
-
-            {/* WHY AP ENTERPRISES VALUE PROPOSITIONS */}
-            <WhyChooseUsSection />
-          </>
-        ) : (
-          /* FILTERED / SEARCH VIEW CATEGORY TABS */
-          <View style={styles.categorySection}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-              {CATEGORIES.map((cat) => {
-                const isSelected = category === cat.id;
-                const isThisCategoryLoading = isSelected && isCategoryLoading;
-                const count = getCategoryCount(cat.id);
-
-                return (
-                  <TouchableOpacity
-                    key={cat.id || 'all'}
-                    activeOpacity={0.8}
-                    onPress={() => handleSelectCategory(cat.id)}
-                    style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
-                  >
-                    {isThisCategoryLoading ? (
-                      <View style={styles.tabLoader}>
-                        <ActivityIndicator size="small" color={colors.white} />
-                      </View>
-                    ) : (
-                      <MaterialCommunityIcons
-                        name={cat.icon as any}
-                        size={18}
-                        color={isSelected ? colors.white : colors.primary}
-                      />
-                    )}
-                    <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
-                      {cat.label}
-                    </Text>
-                    {count != null && count > 0 ? (
-                      <View style={[styles.categoryCountBadge, isSelected && styles.categoryCountBadgeActive]}>
-                        <Text style={[styles.categoryCountText, isSelected && styles.categoryCountTextActive]}>
-                          {count}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* FILTER CHIPS */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipScroll}>
-          <TouchableOpacity
-            onPress={() => handleSelectFilter('all')}
-            style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
-              All Items
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => handleSelectFilter('featured')}
-            style={[styles.filterChip, selectedFilter === 'featured' && styles.filterChipActive]}
-          >
-            <View style={styles.chipInnerRow}>
-              <Feather
-                name="star"
-                size={12}
-                color={selectedFilter === 'featured' ? colors.white : colors.primary}
-              />
-              <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
-                Featured
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => handleSelectFilter('bestseller')}
-            style={[styles.filterChip, selectedFilter === 'bestseller' && styles.filterChipActive]}
-          >
-            <View style={styles.chipInnerRow}>
-              <Feather
-                name="trending-up"
-                size={12}
-                color={selectedFilter === 'bestseller' ? colors.white : colors.primary}
-              />
-              <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
-                Bestsellers
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => handleSelectFilter('price_low')}
-            style={[styles.filterChip, selectedFilter === 'price_low' && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterChipText, selectedFilter === 'price_low' && styles.filterChipTextActive]}>
-              Price: Low to High
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => handleSelectFilter('price_high')}
-            style={[styles.filterChip, selectedFilter === 'price_high' && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterChipText, selectedFilter === 'price_high' && styles.filterChipTextActive]}>
-              Price: High to Low
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* PRODUCTS SECTION TITLE */}
-        <View style={styles.catalogHeadingRow}>
-          <Text style={styles.catalogHeading}>
-            {search
-              ? `Results for "${search}"`
-              : category
-              ? `${category} Catalog`
-              : selectedFilter !== 'all'
-              ? `${selectedFilter.toUpperCase()} Products`
-              : 'All Wholesale Products'}
-          </Text>
-          <Text style={styles.catalogCount}>
-            {isCategoryLoading ? 'Loading products…' : `${items.length} item${items.length === 1 ? '' : 's'} available`}
-          </Text>
-        </View>
-      </View>
-    ),
-    [
-      user?.name,
-      wishlistItems.length,
-      search,
-      category,
-      selectedFilter,
-      isCategoryLoading,
-      items.length,
-      drawerOpen,
-      featuredProducts,
-      bestsellerProducts,
-      newArrivals,
-      loadingCurated,
-      backendCategories,
-      getCategoryCount,
-      getCartQuantityForProduct,
-      incrementProduct,
-      decrementProduct,
-      triggerAuthPrompt,
-      handleSelectCategory,
-      handleSelectFilter,
-      executeProductFetch,
-      openDrawer,
-      closeDrawer,
-      navigation
-    ]
-  );
-
-  return (
-    <SafeAreaView style={styles.container} {...edgePanResponder.panHandlers}>
-      <FlatList
-        data={isCategoryLoading ? [] : items}
-        keyExtractor={(item) => item._id}
-        numColumns={2}
-        columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={styles.list}
-        ListHeaderComponent={renderHeader}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
-        ListEmptyComponent={
-          isCategoryLoading || (loading && items.length === 0) ? (
-            <View style={styles.skeletonGrid}>
-              {[1, 2, 3, 4].map((i) => (
-                <View key={i} style={styles.productCell}>
+        {/* 5. CURATED BUSINESS SUPPLY PREVIEWS (2–4 ITEMS EACH) */}
+        {loadingStorefront ? (
+          <View style={styles.loadingSkeletonSection}>
+            <View style={styles.skeletonTitle} />
+            <View style={styles.skeletonRow}>
+              {[1, 2].map((i) => (
+                <View key={i} style={styles.skeletonCardWrapper}>
                   <ProductCardSkeleton compact />
                 </View>
               ))}
             </View>
-          ) : error ? (
-            <ErrorView
-              message={error}
-              onRetry={() => executeProductFetch(category, search, selectedFilter, 1, true)}
-            />
-          ) : (
-            <EmptyState
-              title="No Products Found"
-              description="No wholesale beverages or egg supplies matched your search/filter criteria."
-              actionLabel="Reset Filters"
-              onAction={() => {
-                setSearch('');
-                setCategory('');
-                setSelectedFilter('all');
-                executeProductFetch('', '', 'all', 1);
-              }}
-            />
-          )
-        }
-        ListFooterComponent={
-          !isCategoryLoading && items.length > 0 && totalPages > 1 ? (
-            <View style={styles.pagination}>
-              <TouchableOpacity
-                onPress={() => {
-                  if (page > 1) {
-                    executeProductFetch(category, search, selectedFilter, page - 1);
-                  }
-                }}
-                disabled={page <= 1}
-                style={[styles.pageButton, page <= 1 && styles.pageButtonDisabled]}
-              >
-                <Ionicons name="chevron-back" size={16} color={page <= 1 ? colors.textMuted : colors.primary} />
-                <Text style={[styles.pageButtonText, page <= 1 && styles.pageButtonTextDisabled]}>Previous</Text>
-              </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {/* FARM FRESH EGGS PREVIEW */}
+            {eggProducts.length > 0 ? (
+              <HorizontalProductSection
+                title="Farm Fresh Eggs"
+                subtitle="Reliable egg supply for retailers, restaurants & businesses"
+                badgeLabel="100% FRESH"
+                badgeTone={{ text: '#D97706', bg: '#FEF3C7', border: '#FDE68A' }}
+                icon="egg-outline"
+                items={eggProducts}
+                onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+                onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+                onDecrementCart={(p) => decrementProduct(p._id)}
+                getCartQuantity={getCartQuantityForProduct}
+                onRequireAuth={(action, p, qty) =>
+                  triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+                }
+                onSeeAll={() => handleNavigateToCategory('Eggs')}
+              />
+            ) : null}
 
-              <Text style={styles.pageIndicator}>
-                Page {page} of {totalPages}
-              </Text>
+            {/* CHILLED BEVERAGES PREVIEW */}
+            {beverageProducts.length > 0 ? (
+              <HorizontalProductSection
+                title="Chilled Beverages"
+                subtitle="Bulk beverage supply for commercial buyers"
+                badgeLabel="FACTORY DIRECT"
+                badgeTone={{ text: '#0284C7', bg: '#E0F2FE', border: '#BAE6FD' }}
+                icon="cup-water"
+                items={beverageProducts}
+                onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+                onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+                onDecrementCart={(p) => decrementProduct(p._id)}
+                getCartQuantity={getCartQuantityForProduct}
+                onRequireAuth={(action, p, qty) =>
+                  triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+                }
+                onSeeAll={() => handleNavigateToCategory('Beverages')}
+              />
+            ) : null}
 
-              <TouchableOpacity
-                onPress={loadNextPage}
-                disabled={page >= totalPages || loadingMore}
-                style={[styles.pageButton, (page >= totalPages || loadingMore) && styles.pageButtonDisabled]}
-              >
-                <Text style={[styles.pageButtonText, (page >= totalPages || loadingMore) && styles.pageButtonTextDisabled]}>
-                  Next
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={page >= totalPages || loadingMore ? colors.textMuted : colors.primary} />
-              </TouchableOpacity>
-            </View>
-          ) : null
-        }
-        renderItem={renderProductItem}
-      />
+            {/* WHOLESALE SUPPLIES PREVIEW */}
+            {wholesaleProducts.length > 0 ? (
+              <HorizontalProductSection
+                title="Wholesale Supplies"
+                subtitle="Commercial products for your business"
+                badgeLabel="BULK STOCK"
+                badgeTone={{ text: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' }}
+                icon="cube-outline"
+                items={wholesaleProducts}
+                onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+                onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+                onDecrementCart={(p) => decrementProduct(p._id)}
+                getCartQuantity={getCartQuantityForProduct}
+                onRequireAuth={(action, p, qty) =>
+                  triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+                }
+                onSeeAll={() => handleNavigateToCategory('Existing Products')}
+              />
+            ) : null}
 
-      {/* ANIMATED SLIDE-IN NAVIGATION DRAWER */}
-      {drawerOpen && (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-          {/* Fading Backdrop */}
-          <Animated.View style={[styles.drawerBackdrop, { opacity: overlayAnim }]}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => closeDrawer()} />
-          </Animated.View>
+            {/* FEATURED FOR BUSINESS PREVIEW */}
+            {featuredProducts.length > 0 ? (
+              <HorizontalProductSection
+                title="Featured for Business"
+                subtitle="High-demand commercial inventory with tiered pricing"
+                badgeLabel="FEATURED"
+                badgeTone={{ text: '#D97706', bg: '#FEF3C7', border: '#FDE68A' }}
+                icon="star-outline"
+                items={featuredProducts}
+                onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+                onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+                onDecrementCart={(p) => decrementProduct(p._id)}
+                getCartQuantity={getCartQuantityForProduct}
+                onRequireAuth={(action, p, qty) =>
+                  triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+                }
+                onSeeAll={handleNavigateToFeatured}
+              />
+            ) : null}
 
-          {/* Sliding Panel */}
-          <Animated.View
-            {...drawerPanResponder.panHandlers}
-            style={[
-              styles.drawerPanel,
-              {
-                width: DRAWER_WIDTH,
-                paddingTop: insets.top + 16,
-                paddingBottom: insets.bottom + 20,
-                transform: [{ translateX: drawerAnim }]
-              }
-            ]}
+            {/* POPULAR WITH BUYERS PREVIEW */}
+            {popularProducts.length > 0 ? (
+              <HorizontalProductSection
+                title="Popular with Buyers"
+                subtitle="Top-reordered wholesale products across commercial accounts"
+                badgeLabel="POPULAR"
+                badgeTone={{ text: '#10B981', bg: '#ECFDF5', border: '#A7F3D0' }}
+                icon="trending-up"
+                items={popularProducts}
+                onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+                onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+                onDecrementCart={(p) => decrementProduct(p._id)}
+                getCartQuantity={getCartQuantityForProduct}
+                onRequireAuth={(action, p, qty) =>
+                  triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+                }
+                onSeeAll={handleNavigateToCatalog}
+              />
+            ) : null}
+          </>
+        )}
+
+        {/* 6. WHY BUSINESSES CHOOSE US */}
+        <WhyChooseUsSection />
+
+        {/* 7. WHOLESALE CTA CARD */}
+        <WholesaleCTACard onPress={handleNavigateToCatalog} />
+
+        {/* 8. COMPACT FOOTER */}
+        <View style={styles.footerWrap}>
+          <Text style={styles.footerBrand}>AP ENTERPRISES</Text>
+          <Text style={styles.footerTagline}>Direct B2B Wholesale Supply • Eggs • Beverages • Supplies</Text>
+          <TouchableOpacity onPress={() => setDeveloperNoteVisible(true)} hitSlop={6}>
+            <Text style={styles.developerNoteLink}>Developer Specifications</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* FLOATING CART BUTTON FOR BUYERS */}
+      {user && totalCartItems > 0 && (
+        <Animated.View
+          style={[
+            styles.floatingCartWrap,
+            { bottom: Math.max(16, insets.bottom + 8), transform: [{ scale: cartScale }] }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.floatingCartBtn}
+            onPress={() => navigation.navigate('Cart')}
+            activeOpacity={0.92}
           >
-            {/* BRAND HEADER */}
-            <View style={styles.drawerHeader}>
-              <View style={styles.drawerBrandRow}>
-                <Image source={logoSource} style={styles.drawerLogo} resizeMode="cover" />
-                <View>
-                  <Text style={styles.drawerTitle}>AP Enterprises</Text>
-                  <Text style={styles.drawerSubtitle}>Beverages & Eggs Supply</Text>
-                </View>
+            <View style={styles.floatingCartLeft}>
+              <View style={styles.cartBadgeCircle}>
+                <Text style={styles.cartBadgeCircleText}>{totalCartItems}</Text>
               </View>
-              <TouchableOpacity onPress={() => closeDrawer()} hitSlop={8} style={styles.drawerCloseBtn}>
-                <Ionicons name="close" size={20} color={colors.text} />
-              </TouchableOpacity>
+              <Text style={styles.floatingCartTitle}>Items in Cart</Text>
             </View>
+            <View style={styles.floatingCartRight}>
+              <Text style={styles.floatingCartAction}>View Cart</Text>
+              <Ionicons name="arrow-forward" size={15} color={colors.white} />
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.drawerScroll}>
-              {/* GUEST WELCOME CARD */}
-              {!user ? (
-                <View style={styles.drawerGuestCard}>
-                  <Text style={styles.drawerGuestTitle}>Wholesale Trade Access</Text>
-                  <Text style={styles.drawerGuestSubtitle}>
-                    Sign in to unlock wholesale case pricing, place bulk orders, and dispatch deliveries.
+      {/* SIDEBAR DRAWER OVERLAY */}
+      {drawerOpen && (
+        <Animated.View style={[styles.drawerOverlay, { opacity: overlayAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => closeDrawer()} />
+        </Animated.View>
+      )}
+
+      {/* SIDEBAR DRAWER */}
+      {drawerOpen && (
+        <Animated.View
+          style={[
+            styles.drawerContainer,
+            {
+              width: DRAWER_WIDTH,
+              paddingTop: Math.max(16, insets.top + 8),
+              paddingBottom: Math.max(16, insets.bottom + 8),
+              transform: [{ translateX: drawerAnim }]
+            }
+          ]}
+          {...drawerPanResponder.panHandlers}
+        >
+          <View style={styles.drawerHeader}>
+            <View style={styles.drawerLogoWrap}>
+              <Image source={logoSource} style={styles.drawerLogo} resizeMode="cover" />
+              <View style={styles.drawerTitleWrap}>
+                <Text style={styles.drawerTitle}>AP Enterprises</Text>
+                <Text style={styles.drawerSub}>B2B Commerce</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => closeDrawer()} hitSlop={8} style={styles.drawerCloseBtn}>
+              <Ionicons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.drawerScroll} showsVerticalScrollIndicator={false}>
+            {user ? (
+              <View style={styles.drawerUserCard}>
+                <View style={styles.drawerAvatar}>
+                  <Text style={styles.drawerAvatarText}>
+                    {(user.name || 'U').charAt(0).toUpperCase()}
                   </Text>
-                  <View style={styles.drawerGuestButtons}>
-                    <TouchableOpacity
-                      style={styles.drawerSignInBtn}
-                      activeOpacity={0.88}
-                      onPress={() => closeDrawer(() => navigation.navigate('Login'))}
-                    >
-                      <MaterialCommunityIcons name="login" size={16} color={colors.white} />
-                      <Text style={styles.drawerSignInBtnText}>Sign In</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.drawerSignUpBtn}
-                      activeOpacity={0.88}
-                      onPress={() => closeDrawer(() => navigation.navigate('Register'))}
-                    >
-                      <MaterialCommunityIcons name="account-plus-outline" size={16} color={colors.primary} />
-                      <Text style={styles.drawerSignUpBtnText}>Create Account</Text>
-                    </TouchableOpacity>
+                </View>
+                <View style={styles.drawerUserInfo}>
+                  <Text style={styles.drawerUserName} numberOfLines={1}>
+                    {user.name}
+                  </Text>
+                  <Text style={styles.drawerUserEmail} numberOfLines={1}>
+                    {user.email}
+                  </Text>
+                  <View style={styles.drawerRolePill}>
+                    <Text style={styles.drawerRoleText}>WHOLESALE BUYER</Text>
                   </View>
                 </View>
-              ) : null}
-
-              {/* NAVIGATION MENU ITEMS */}
-              <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  setCategory('');
-                  setSelectedFilter('all');
-                  executeProductFetch('', search, 'all', 1);
-                })}
-              >
-                <Ionicons name="home-outline" size={20} color={colors.primary} />
-                <Text style={styles.drawerItemText}>Home & All Products</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  setCategory('Eggs');
-                  executeProductFetch('Eggs', search, selectedFilter, 1);
-                })}
-              >
-                <MaterialCommunityIcons name="egg-outline" size={20} color="#D97706" />
-                <Text style={styles.drawerItemText}>Farm Fresh Eggs</Text>
-                <View style={[styles.drawerBadge, { backgroundColor: '#FEF3C7' }]}>
-                  <Text style={[styles.drawerBadgeText, { color: '#92400E' }]}>Trays & Crates</Text>
+              </View>
+            ) : (
+              <View style={styles.drawerGuestCard}>
+                <View style={styles.drawerGuestIcon}>
+                  <MaterialCommunityIcons name="shield-account" size={24} color={colors.primary} />
                 </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  setCategory('Beverages');
-                  executeProductFetch('Beverages', search, selectedFilter, 1);
-                })}
-              >
-                <MaterialCommunityIcons name="cup-water" size={20} color="#0284C7" />
-                <Text style={styles.drawerItemText}>Chilled Beverages</Text>
-                <View style={[styles.drawerBadge, { backgroundColor: '#E0F2FE' }]}>
-                  <Text style={[styles.drawerBadgeText, { color: '#0369A1' }]}>Bulk Cans</Text>
+                <View style={styles.drawerGuestTextWrap}>
+                  <Text style={styles.drawerGuestTitle}>Wholesale Trade Access</Text>
+                  <Text style={styles.drawerGuestSub}>Sign in to place orders, view bulk discounts & reorder.</Text>
                 </View>
+                <View style={styles.drawerGuestActionRow}>
+                  <TouchableOpacity
+                    style={styles.drawerSignInBtn}
+                    onPress={() => closeDrawer(() => navigation.navigate('Login'))}
+                  >
+                    <Text style={styles.drawerSignInBtnText}>Sign In</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.drawerSignUpBtn}
+                    onPress={() => closeDrawer(() => navigation.navigate('Register'))}
+                  >
+                    <Text style={styles.drawerSignUpBtnText}>Create Account</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.drawerDivider} />
+
+            <View style={styles.drawerNavGroup}>
+              <Text style={styles.drawerNavLabel}>STOREFRONT & VERTICALS</Text>
+
+              <TouchableOpacity
+                style={[styles.drawerNavItem, styles.drawerNavItemActive]}
+                onPress={() => closeDrawer()}
+              >
+                <MaterialCommunityIcons name="home-outline" size={20} color={colors.primary} />
+                <Text style={[styles.drawerNavText, styles.drawerNavTextActive]}>Storefront Home</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  setCategory('Existing Products');
-                  executeProductFetch('Existing Products', search, selectedFilter, 1);
-                })}
+                style={styles.drawerNavItem}
+                onPress={() => closeDrawer(() => handleNavigateToCatalog())}
               >
-                <MaterialCommunityIcons name="cube-outline" size={20} color={colors.primary} />
-                <Text style={styles.drawerItemText}>Wholesale Supplies</Text>
+                <MaterialCommunityIcons name="storefront-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>All Wholesale Catalog</Text>
               </TouchableOpacity>
 
-              <View style={styles.drawerDivider} />
+              <TouchableOpacity
+                style={styles.drawerNavItem}
+                onPress={() => closeDrawer(() => handleNavigateToCategory('Eggs'))}
+              >
+                <MaterialCommunityIcons name="egg-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Farm Fresh Eggs</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  if (!user) {
-                    triggerAuthPrompt('wishlist');
-                  } else {
-                    navigation.navigate('Wishlist');
-                  }
-                })}
+                style={styles.drawerNavItem}
+                onPress={() => closeDrawer(() => handleNavigateToCategory('Beverages'))}
               >
-                <Ionicons name="heart-outline" size={20} color="#EF4444" />
-                <Text style={styles.drawerItemText}>My Wishlist</Text>
-                {user && wishlistItems.length > 0 && (
-                  <View style={[styles.drawerBadge, { backgroundColor: '#FEE2E2' }]}>
-                    <Text style={[styles.drawerBadgeText, { color: '#DC2626' }]}>{wishlistItems.length}</Text>
+                <MaterialCommunityIcons name="cup-water" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Chilled Beverages</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.drawerNavItem}
+                onPress={() => closeDrawer(() => handleNavigateToCategory('Existing Products'))}
+              >
+                <MaterialCommunityIcons name="cube-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Wholesale Supplies</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.drawerDivider} />
+
+            <View style={styles.drawerNavGroup}>
+              <Text style={styles.drawerNavLabel}>TRADE MANAGEMENT</Text>
+
+              <TouchableOpacity
+                style={styles.drawerNavItem}
+                onPress={() =>
+                  closeDrawer(() => {
+                    if (!user) triggerAuthPrompt('general');
+                    else navigation.navigate('Orders');
+                  })
+                }
+              >
+                <MaterialCommunityIcons name="clipboard-text-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Commercial Orders</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.drawerNavItem}
+                onPress={() =>
+                  closeDrawer(() => {
+                    if (!user) triggerAuthPrompt('wishlist');
+                    else navigation.navigate('Wishlist');
+                  })
+                }
+              >
+                <Ionicons name="heart-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Wishlist</Text>
+                {wishlistItems.length > 0 && (
+                  <View style={styles.drawerBadge}>
+                    <Text style={styles.drawerBadgeText}>{wishlistItems.length}</Text>
                   </View>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  if (!user) {
-                    triggerAuthPrompt('cart');
-                  } else {
-                    navigation.navigate('Cart');
-                  }
-                })}
+                style={styles.drawerNavItem}
+                onPress={() =>
+                  closeDrawer(() => {
+                    if (!user) triggerAuthPrompt('cart');
+                    else navigation.navigate('Cart');
+                  })
+                }
               >
-                <Ionicons name="cart-outline" size={20} color={colors.primary} />
-                <Text style={styles.drawerItemText}>Shopping Cart</Text>
-                {user && totalCartItems > 0 && (
+                <Ionicons name="cart-outline" size={20} color={colors.text} />
+                <Text style={styles.drawerNavText}>Wholesale Cart</Text>
+                {totalCartItems > 0 && (
                   <View style={styles.drawerBadge}>
                     <Text style={styles.drawerBadgeText}>{totalCartItems}</Text>
                   </View>
                 )}
               </TouchableOpacity>
+            </View>
 
-              <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => {
-                  if (!user) {
-                    triggerAuthPrompt('orders');
-                  } else {
-                    navigation.navigate('Orders');
-                  }
-                })}
-              >
-                <Ionicons name="clipboard-outline" size={20} color={colors.primary} />
-                <Text style={styles.drawerItemText}>My Orders & Tracking</Text>
-              </TouchableOpacity>
-
-              {(user?.role === 'seller' || user?.role === 'admin') && (
-                <>
-                  <View style={styles.drawerDivider} />
+            {user?.role === 'admin' && (
+              <>
+                <View style={styles.drawerDivider} />
+                <View style={styles.drawerNavGroup}>
+                  <Text style={styles.drawerNavLabel}>ADMINISTRATION</Text>
                   <TouchableOpacity
-                    style={styles.drawerItem}
-                    onPress={() => closeDrawer(() => navigation.navigate(user.role === 'admin' ? 'AdminDashboard' : 'SellerDashboard'))}
+                    style={styles.drawerNavItem}
+                    onPress={() => closeDrawer(() => navigation.navigate('AdminDashboard'))}
                   >
-                    <MaterialCommunityIcons name="shield-crown-outline" size={20} color={colors.primary} />
-                    <Text style={styles.drawerItemText}>
-                      {user.role === 'admin' ? 'Admin Console' : 'Seller Portal'}
-                    </Text>
+                    <MaterialCommunityIcons name="view-dashboard-outline" size={20} color={colors.citrus} />
+                    <Text style={[styles.drawerNavText, { color: colors.citrus }]}>Admin Portal</Text>
                   </TouchableOpacity>
-                </>
-              )}
-
-              <View style={styles.drawerDivider} />
-
-              <TouchableOpacity
-                style={styles.drawerItem}
-                onPress={() => closeDrawer(() => setDeveloperNoteVisible(true))}
-              >
-                <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
-                <Text style={styles.drawerItemText}>Developer Note</Text>
-                <View style={[styles.drawerBadge, { backgroundColor: '#FEF3C7' }]}>
-                  <Text style={[styles.drawerBadgeText, { color: '#92400E' }]}>Trial</Text>
                 </View>
-              </TouchableOpacity>
+              </>
+            )}
 
+            <View style={styles.drawerDivider} />
+
+            <View style={styles.drawerFooterGroup}>
               {user ? (
                 <TouchableOpacity
-                  style={[styles.drawerItem, styles.drawerLogout]}
-                  onPress={() => {
-                    closeDrawer(() => {
-                      dispatch(logout());
-                    });
-                  }}
+                  style={styles.drawerLogoutBtn}
+                  onPress={handleLogout}
+                  disabled={loggingOut}
                 >
-                  <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-                  <Text style={[styles.drawerItemText, { color: colors.danger }]}>Log Out</Text>
+                  {loggingOut ? (
+                    <ActivityIndicator size="small" color={colors.danger} />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="logout" size={18} color={colors.danger} />
+                      <Text style={styles.drawerLogoutText}>Sign Out of Trade Account</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
-              ) : null}
-            </ScrollView>
-          </Animated.View>
-        </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.drawerLoginCtaBtn}
+                  onPress={() => closeDrawer(() => navigation.navigate('Login'))}
+                >
+                  <MaterialCommunityIcons name="login" size={18} color={colors.primary} />
+                  <Text style={styles.drawerLoginCtaText}>Sign In to Wholesale Account</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
+        </Animated.View>
       )}
 
-      {/* DEVELOPER NOTE MODAL */}
-      <DeveloperNoteModal
-        visible={developerNoteVisible}
-        onClose={() => setDeveloperNoteVisible(false)}
-      />
-
-      {/* LOGOUT LOADER */}
-      <BeverageLoader
-        visible={loggingOut}
-        mode="auth"
-        title="AP Enterprises"
-        subtitle="Signing out of your wholesale account..."
-      />
-
-      {/* FLOATING CART ACTION */}
-      <TouchableOpacity
-        activeOpacity={0.9}
-        accessibilityLabel={`Open shopping cart`}
-        onPress={() => {
-          if (!user) {
-            triggerAuthPrompt('cart');
-          } else {
-            navigation.navigate('Cart');
-          }
-        }}
-        style={[styles.floatingCart, { bottom: Math.max(16, insets.bottom + 12) }]}
-      >
-        <Ionicons name="cart" size={20} color={colors.white} />
-        <Text style={styles.floatingCartText}>Cart</Text>
-        {user && totalCartItems > 0 ? (
-          <Animated.View style={[styles.cartBadge, { transform: [{ scale: cartScale }] }]}>
-            <Text style={styles.cartBadgeText}>{totalCartItems}</Text>
-          </Animated.View>
-        ) : null}
-      </TouchableOpacity>
-
-      {/* AUTH PROMPT MODAL FOR GUESTS */}
+      {/* AUTH PROMPT MODAL FOR GUEST USERS */}
       <AuthPromptModal
         visible={authModalVisible}
         action={authModalAction}
@@ -1257,6 +886,9 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         onSignIn={handleAuthModalSignIn}
         onSignUp={handleAuthModalSignUp}
       />
+
+      {/* DEVELOPER NOTE MODAL */}
+      <DeveloperNoteModal visible={developerNoteVisible} onClose={() => setDeveloperNoteVisible(false)} />
     </SafeAreaView>
   );
 };
@@ -1266,27 +898,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg
   },
-  list: {
+  scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 110
-  },
-  columnWrapper: {
-    justifyContent: 'space-between',
-    gap: 12
-  },
-  productCell: {
-    flex: 1,
-    marginBottom: 12
-  },
-  skeletonGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12
-  },
-  headerSection: {
-    marginBottom: 12
+    paddingBottom: 90
   },
   headerRow: {
     flexDirection: 'row',
@@ -1397,296 +1011,273 @@ const styles = StyleSheet.create({
     color: colors.text,
     paddingVertical: 8
   },
-  categorySection: {
-    marginBottom: 10
+  searchGoBtn: {
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.sm
   },
-  categorySectionHeader: {
-    marginBottom: 8,
-    gap: 2
-  },
-  sectionHeading: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: colors.navy,
-    letterSpacing: -0.2
-  },
-  sectionHeadingSub: {
+  searchGoText: {
     fontSize: 11.5,
-    color: colors.textSecondary
-  },
-  categoryScroll: {
-    gap: 8
-  },
-  categoryTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    minHeight: 38,
-    borderRadius: radius.pill,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows.card
-  },
-  tabLoader: {
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ scale: 0.8 }]
-  },
-  categoryTabActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
-  },
-  categoryTabText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: colors.text
-  },
-  categoryTabTextActive: {
-    color: colors.white
-  },
-  categoryCountBadge: {
-    backgroundColor: colors.bg,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  categoryCountBadgeActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderColor: 'rgba(255, 255, 255, 0.4)'
-  },
-  categoryCountText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textSecondary
-  },
-  categoryCountTextActive: {
-    color: colors.white
-  },
-  filterChipScroll: {
-    gap: 6,
-    paddingVertical: 4,
-    marginBottom: 10
-  },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.sm,
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  chipInnerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5
-  },
-  filterChipActive: {
-    backgroundColor: colors.infoSurface,
-    borderColor: colors.primary
-  },
-  filterChipText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: colors.textSecondary
-  },
-  filterChipTextActive: {
-    color: colors.primary,
-    fontWeight: '900'
-  },
-  catalogHeadingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 4
-  },
-  catalogHeading: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: colors.navy
-  },
-  catalogCount: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary
-  },
-  pagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    marginTop: 8
-  },
-  pageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  pageButtonDisabled: {
-    opacity: 0.4
-  },
-  pageButtonText: {
-    fontSize: 12.5,
     fontWeight: '800',
     color: colors.primary
   },
-  pageButtonTextDisabled: {
-    color: colors.textMuted
+  loadingSkeletonSection: {
+    marginVertical: 12,
+    gap: 10
   },
-  pageIndicator: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: colors.textSecondary
+  skeletonTitle: {
+    width: 140,
+    height: 18,
+    borderRadius: radius.xs,
+    backgroundColor: colors.borderLight
   },
-  drawerBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.52)'
+  skeletonRow: {
+    flexDirection: 'row',
+    gap: 12
   },
-  drawerPanel: {
+  skeletonCardWrapper: {
+    width: 185
+  },
+  footerWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 4
+  },
+  footerBrand: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.navy,
+    letterSpacing: 0.8
+  },
+  footerTagline: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center'
+  },
+  developerNoteLink: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: '700',
+    marginTop: 6,
+    textDecorationLine: 'underline'
+  },
+  floatingCartWrap: {
     position: 'absolute',
-    left: 0,
+    left: 16,
+    right: 16,
+    zIndex: 99
+  },
+  floatingCartBtn: {
+    backgroundColor: colors.navy,
+    borderRadius: radius.lg,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#334155',
+    ...shadows.floating
+  },
+  floatingCartLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  cartBadgeCircle: {
+    backgroundColor: colors.primary,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  cartBadgeCircleText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '900'
+  },
+  floatingCartTitle: {
+    color: colors.white,
+    fontSize: 13.5,
+    fontWeight: '800'
+  },
+  floatingCartRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
+  floatingCartAction: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700'
+  },
+  drawerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    zIndex: 100
+  },
+  drawerContainer: {
+    position: 'absolute',
     top: 0,
     bottom: 0,
+    left: 0,
     backgroundColor: colors.card,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
-    paddingHorizontal: 16,
+    zIndex: 101,
     ...shadows.modal
   },
   drawerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    marginBottom: 12
+    borderBottomColor: colors.border
   },
-  drawerBrandRow: {
+  drawerLogoWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10
   },
   drawerLogo: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm
+  },
+  drawerTitleWrap: {
+    gap: 1
   },
   drawerTitle: {
-    color: colors.navy,
-    fontSize: 15,
-    fontWeight: '900'
+    fontSize: 15.5,
+    fontWeight: '900',
+    color: colors.navy
   },
-  drawerSubtitle: {
-    color: colors.textSecondary,
+  drawerSub: {
     fontSize: 11,
-    marginTop: 1
+    color: colors.textSecondary
   },
   drawerCloseBtn: {
     width: 32,
     height: 32,
-    borderRadius: radius.sm,
-    backgroundColor: colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border
+    borderRadius: radius.pill,
+    backgroundColor: colors.bg
   },
   drawerScroll: {
-    gap: 6,
-    paddingBottom: 24
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12
   },
-  drawerItem: {
+  drawerUserCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    borderRadius: radius.md
+    padding: 12,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border
   },
-  drawerItemText: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 13.5,
-    fontWeight: '700'
-  },
-  drawerBadge: {
-    backgroundColor: colors.infoSurface,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+  drawerAvatar: {
+    width: 42,
+    height: 42,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.infoBorder
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  drawerBadgeText: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: '800'
+  drawerAvatarText: {
+    color: colors.white,
+    fontSize: 17,
+    fontWeight: '900'
   },
-  drawerGuestCard: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: radius.lg,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-    gap: 8
+  drawerUserInfo: {
+    flex: 1,
+    gap: 2
   },
-  drawerGuestTitle: {
+  drawerUserName: {
     fontSize: 14,
     fontWeight: '800',
     color: colors.navy
   },
-  drawerGuestSubtitle: {
+  drawerUserEmail: {
     fontSize: 11.5,
-    lineHeight: 16,
     color: colors.textSecondary
   },
-  drawerGuestButtons: {
+  drawerRolePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    marginTop: 2
+  },
+  drawerRoleText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 0.3
+  },
+  drawerGuestCard: {
+    padding: 14,
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10
+  },
+  drawerGuestIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  drawerGuestTextWrap: {
+    gap: 2
+  },
+  drawerGuestTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.navy
+  },
+  drawerGuestSub: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: colors.textSecondary
+  },
+  drawerGuestActionRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4
+    marginTop: 2
   },
   drawerSignInBtn: {
     flex: 1,
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
     paddingVertical: 8,
-    flexDirection: 'row',
+    borderRadius: radius.sm,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6
+    justifyContent: 'center'
   },
   drawerSignInBtnText: {
     color: colors.white,
-    fontSize: 12.5,
-    fontWeight: '700'
+    fontSize: 12,
+    fontWeight: '800'
   },
   drawerSignUpBtn: {
     flex: 1,
     backgroundColor: colors.card,
-    borderRadius: radius.md,
     paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    flexDirection: 'row',
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4
+    borderWidth: 1,
+    borderColor: colors.border
   },
   drawerSignUpBtnText: {
     color: colors.primary,
@@ -1696,40 +1287,84 @@ const styles = StyleSheet.create({
   drawerDivider: {
     height: 1,
     backgroundColor: colors.border,
-    marginVertical: 6
+    marginVertical: 14
   },
-  drawerLogout: {
-    marginTop: 6
+  drawerNavGroup: {
+    gap: 4
   },
-  floatingCart: {
-    position: 'absolute',
-    right: 16,
+  drawerNavLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    paddingLeft: 4
+  },
+  drawerNavItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: radius.pill,
-    ...shadows.floating
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.md
   },
-  floatingCartText: {
+  drawerNavItemActive: {
+    backgroundColor: colors.primaryLight
+  },
+  drawerNavText: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: colors.text
+  },
+  drawerNavTextActive: {
+    color: colors.primary,
+    fontWeight: '800'
+  },
+  drawerBadge: {
+    backgroundColor: colors.danger,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.pill
+  },
+  drawerBadgeText: {
     color: colors.white,
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: '900'
   },
-  cartBadge: {
-    backgroundColor: colors.white,
-    borderRadius: radius.pill,
-    minWidth: 20,
-    height: 20,
+  drawerFooterGroup: {
+    paddingBottom: 24
+  },
+  drawerLogoutBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4
+    gap: 8,
+    paddingVertical: 11,
+    backgroundColor: colors.dangerSurface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder
   },
-  cartBadgeText: {
-    color: colors.primary,
-    fontSize: 11.5,
-    fontWeight: '900'
+  drawerLogoutText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.danger
+  },
+  drawerLoginCtaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#BFDBFE'
+  },
+  drawerLoginCtaText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.primary
   }
 });

@@ -5,6 +5,13 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Home: { initialCategory?: string } | undefined;
+  Catalog:
+    | {
+        initialCategory?: string;
+        initialSearch?: string;
+        initialFilter?: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high';
+      }
+    | undefined;
   Wishlist: undefined;
   ProductDetails: { productId: string; product?: Product };
   Cart: undefined;
