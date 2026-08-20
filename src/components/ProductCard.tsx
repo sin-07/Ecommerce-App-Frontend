@@ -70,10 +70,15 @@ const ProductCardBase: React.FC<Props> = ({
 
   const [imageError, setImageError] = React.useState(false);
 
-  const imageUri = product.imageUrl
-    ? product.imageUrl.startsWith('http')
-      ? product.imageUrl
-      : `${API_BASE_URL.replace('/api', '')}${product.imageUrl}`
+  React.useEffect(() => {
+    setImageError(false);
+  }, [product.imageUrl]);
+
+  const rawUrl = product.imageUrl ? String(product.imageUrl).trim() : '';
+  const imageUri = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+    ? rawUrl
+    : rawUrl.startsWith('/')
+    ? `${API_BASE_URL.replace('/api', '')}${rawUrl}`
     : '';
 
   const showImage = Boolean(imageUri) && !imageError;

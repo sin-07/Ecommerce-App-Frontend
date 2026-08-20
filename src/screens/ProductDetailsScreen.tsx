@@ -67,11 +67,6 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
   if (error && !resolved) return <ErrorView message={error} onRetry={() => dispatch(fetchProductById(productId))} />;
   if (!resolved) return <ErrorView message="Product item unavailable" />;
 
-  const imageUri = resolved.imageUrl
-    ? resolved.imageUrl.startsWith('http')
-      ? resolved.imageUrl
-      : `${API_BASE_URL.replace('/api', '')}${resolved.imageUrl}`
-    : '';
 
   const isOutOfStock = resolved.stock <= 0;
   const isLowStock = resolved.stock > 0 && resolved.stock <= 10;
@@ -132,6 +127,18 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
   };
 
   const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [resolved?.imageUrl]);
+
+  const rawUrl = resolved.imageUrl ? String(resolved.imageUrl).trim() : '';
+  const imageUri = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+    ? rawUrl
+    : rawUrl.startsWith('/')
+    ? `${API_BASE_URL.replace('/api', '')}${rawUrl}`
+    : '';
+
   const showImage = Boolean(imageUri) && !imageError;
 
   return (

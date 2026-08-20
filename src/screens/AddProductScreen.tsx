@@ -77,10 +77,15 @@ export const AddProductScreen: React.FC<Props> = ({ navigation, route }) => {
       form.append('isActive', String(payload.isActive));
 
       if (payload.imageAsset?.uri) {
+        const localUri = payload.imageAsset.uri;
+        const filename = payload.imageAsset.fileName || localUri.split('/').pop() || `product-${Date.now()}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const type = payload.imageAsset.mimeType || (match ? `image/${match[1]}` : 'image/jpeg');
+
         form.append('image', {
-          uri: payload.imageAsset.uri,
-          name: payload.imageAsset.fileName || `product-${Date.now()}.jpg`,
-          type: payload.imageAsset.mimeType || 'image/jpeg'
+          uri: Platform.OS === 'ios' ? localUri.replace('file://', '') : localUri,
+          name: filename,
+          type
         } as any);
       }
 
