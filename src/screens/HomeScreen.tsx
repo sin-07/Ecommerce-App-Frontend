@@ -275,22 +275,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [closeDrawer, drawerAnim, overlayAnim]
   );
 
-  // Edge Swipe PanResponder on screen container for opening from left edge
-  const edgePanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return !drawerOpen && gestureState.x0 < 28 && gestureState.dx > 18 && Math.abs(gestureState.dy) < 30;
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          if (gestureState.dx > 25) {
-            openDrawer();
-          }
-        }
-      }),
-    [drawerOpen, openDrawer]
-  );
-
   const getCartQuantityForProduct = useCallback(
     (productId: string) => {
       const found = cartItems.find((item) => {
@@ -392,23 +376,23 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     [dispatch, getCartQuantityForProduct, user, triggerAuthPrompt]
   );
 
-  const handleSearchSubmit = () => {
+  const handleSearchSubmit = useCallback(() => {
     const query = searchQuery.trim();
     setSearchQuery('');
     navigation.navigate('Catalog', { initialSearch: query });
-  };
+  }, [searchQuery, navigation]);
 
-  const handleNavigateToCategory = (categoryName: string) => {
+  const handleNavigateToCategory = useCallback((categoryName: string) => {
     navigation.navigate('Catalog', { initialCategory: categoryName });
-  };
+  }, [navigation]);
 
-  const handleNavigateToFeatured = () => {
+  const handleNavigateToFeatured = useCallback(() => {
     navigation.navigate('Catalog', { initialFilter: 'featured' });
-  };
+  }, [navigation]);
 
-  const handleNavigateToCatalog = () => {
+  const handleNavigateToCatalog = useCallback(() => {
     navigation.navigate('Catalog', {});
-  };
+  }, [navigation]);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -424,7 +408,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...edgePanResponder.panHandlers}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

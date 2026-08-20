@@ -79,7 +79,7 @@ type Props = {
 };
 
 const AUTO_SLIDE_DEFAULT = 4800;
-const TRANSITION_DURATION = 520;
+const TRANSITION_DURATION = 540;
 
 export const PromoBannerCarousel: React.FC<Props> = React.memo(({
   slides = PROMO_SLIDES,
@@ -89,21 +89,28 @@ export const PromoBannerCarousel: React.FC<Props> = React.memo(({
   const { width: windowWidth } = useWindowDimensions();
   const cardWidth = useMemo(() => windowWidth - 32, [windowWidth]);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [targetIndex, setTargetIndex] = useState<number | null>(null);
-  const [direction, setDirection] = useState<'next' | 'prev'>('next');
-  const [isTransitioning, setIsTransitioning] = useState(false);
+  // Active dot indicator state (only controls pagination dots)
+  const [activeDot, setActiveDot] = useState(0);
 
-  // Transition animation value: 0 -> 1
-  const transitionAnim = useRef(new Animated.Value(0)).current;
+  // Current active slide index ref (source of truth for transitions)
+  const currIndexRef = useRef(0);
   const isTransitioningRef = useRef(false);
-  const currentIndexRef = useRef(0);
-  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInteractingRef = useRef(false);
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Dedicated Animated.Value for each permanently mounted slide
+  const slideAnims = useRef<Animated.Value[]>(
+    slides.map((_, index) => new Animated.Value(index === 0 ? 0 : cardWidth))
+  ).current;
+
+  // Handle window width updates
   useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
+    slides.forEach((_, index) => {
+      if (index !== currIndexRef.current && !isTransitioningRef.current) {
+        slideAnims[index].setValue(cardWidth);
+      }
+    });
+  }, [cardWidth, slides, slideAnims]);
 
   const stopAutoPlay = useCallback(() => {
     if (autoPlayTimerRef.current) {
@@ -113,44 +120,61 @@ export const PromoBannerCarousel: React.FC<Props> = React.memo(({
   }, []);
 
   const goToSlide = useCallback(
-    (nextIdx: number, dir: 'next' | 'prev' = 'next') => {
-      if (isTransitioningRef.current || nextIdx === currentIndexRef.current) return;
-      if (nextIdx < 0 || nextIdx >= slides.length) return;
+    (targetIndex: number, direction: 'next' | 'prev' = 'next') => {
+      if (isTransitioningRef.current || targetIndex === currIndexRef.current) return;
+      if (targetIndex < 0 || targetIndex >= slides.length) return;
 
       stopAutoPlay();
       isTransitioningRef.current = true;
-      setIsTransitioning(true);
-      setDirection(dir);
-      setTargetIndex(nextIdx);
-      transitionAnim.setValue(0);
 
-      Animated.timing(transitionAnim, {
-        toValue: 1,
-        duration: TRANSITION_DURATION,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-        useNativeDriver: true
-      }).start(({ finished }) => {
+      const currentIdx = currIndexRef.current;
+      const startPos = direction === 'next' ? cardWidth : -cardWidth;
+      const endPos = direction === 'next' ? -cardWidth : cardWidth;
+
+      // Position target slide just outside viewport
+      slideAnims[targetIndex].setValue(startPos);
+
+      // Smooth horizontal GPU translation
+      Animated.parallel([
+        Animated.timing(slideAnims[currentIdx], {
+          toValue: endPos,
+          duration: TRANSITION_DURATION,
+          easing: Easing.bezier(0.25, 1, 0.5, 1),
+          useNativeDriver: true
+        }),
+        Animated.timing(slideAnims[targetIndex], {
+          toValue: 0,
+          duration: TRANSITION_DURATION,
+          easing: Easing.bezier(0.25, 1, 0.5, 1),
+          useNativeDriver: true
+        })
+      ]).start(({ finished }) => {
         if (finished) {
-          currentIndexRef.current = nextIdx;
-          setCurrentIndex(nextIdx);
-          setTargetIndex(null);
-          transitionAnim.setValue(0);
+          currIndexRef.current = targetIndex;
+          setActiveDot(targetIndex);
           isTransitioningRef.current = false;
-          setIsTransitioning(false);
+
+          // Park all off-screen slides cleanly
+          slides.forEach((_, idx) => {
+            if (idx !== targetIndex) {
+              slideAnims[idx].setValue(cardWidth);
+            }
+          });
+
           startAutoPlay();
         }
       });
     },
-    [slides.length, transitionAnim, stopAutoPlay]
+    [cardWidth, slides, slideAnims, stopAutoPlay]
   );
 
   const nextSlide = useCallback(() => {
-    const nextIdx = (currentIndexRef.current + 1) % slides.length;
+    const nextIdx = (currIndexRef.current + 1) % slides.length;
     goToSlide(nextIdx, 'next');
   }, [slides.length, goToSlide]);
 
   const prevSlide = useCallback(() => {
-    const prevIdx = (currentIndexRef.current - 1 + slides.length) % slides.length;
+    const prevIdx = (currIndexRef.current - 1 + slides.length) % slides.length;
     goToSlide(prevIdx, 'prev');
   }, [slides.length, goToSlide]);
 
@@ -169,12 +193,12 @@ export const PromoBannerCarousel: React.FC<Props> = React.memo(({
     return () => stopAutoPlay();
   }, [startAutoPlay, stopAutoPlay]);
 
-  // PanResponder for manual swiping
-  const panResponder = useMemo(
+  // Dedicated PanResponder isolated strictly to the Hero Carousel container
+  const carouselPanResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dy) < 20;
+          return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dy) < 15;
         },
         onPanResponderGrant: () => {
           isInteractingRef.current = true;
@@ -198,98 +222,76 @@ export const PromoBannerCarousel: React.FC<Props> = React.memo(({
     [nextSlide, prevSlide, startAutoPlay, stopAutoPlay]
   );
 
-  const currentSlide = slides[currentIndex];
-  const nextSlideData = targetIndex !== null ? slides[targetIndex] : null;
-
-  // Compute slide transforms
-  const currentTranslateX = transitionAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, direction === 'next' ? -cardWidth : cardWidth]
-  });
-
-  const nextTranslateX = transitionAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [direction === 'next' ? cardWidth : -cardWidth, 0]
-  });
-
-  const renderSlideContent = (item: PromoSlide) => (
-    <TouchableOpacity
-      activeOpacity={0.92}
-      style={[styles.heroCard, { backgroundColor: item.bg }]}
-      onPress={() => {
-        if (onSelectCategory) {
-          onSelectCategory(item.category);
-        }
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={`${item.tag} - ${item.title}`}
-    >
-      <View style={[styles.ambientGlow, { backgroundColor: item.accent }]} />
-
-      <View style={styles.contentWrap}>
-        <View style={[styles.tagBadge, { borderColor: item.accent }]}>
-          <MaterialCommunityIcons name={item.icon} size={13} color={item.accent} />
-          <Text style={[styles.tagText, { color: item.accent }]}>{item.tag}</Text>
-        </View>
-
-        <Text style={styles.titleText} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={styles.subtitleText} numberOfLines={2}>
-          {item.subtitle}
-        </Text>
-
-        <View style={styles.btnRow}>
-          <View style={[styles.actionBtn, { backgroundColor: item.accent }]}>
-            <Text style={styles.actionBtnText}>{item.buttonLabel}</Text>
-            <Ionicons name="arrow-forward" size={13} color="#0F172A" />
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
   return (
-    <View style={styles.container} {...panResponder.panHandlers}>
-      {/* TWO-LAYER STABLE CAROUSEL CONTAINER (NEVER UNMOUNTS OR FLICKERS) */}
+    <View style={styles.container} {...carouselPanResponder.panHandlers}>
+      {/* 
+        PERMANENTLY MOUNTED SLIDE STAGE:
+        All slides remain continuously mounted in separate GPU-native layers.
+        Zero unmounting, zero conditional switching, zero image reloading, zero flicker.
+      */}
       <View style={[styles.carouselStage, { width: cardWidth }]}>
-        {/* CURRENT VISIBLE SLIDE */}
-        <Animated.View
-          style={[
-            styles.slideLayer,
-            { width: cardWidth, transform: [{ translateX: currentTranslateX }] }
-          ]}
-        >
-          {renderSlideContent(currentSlide)}
-        </Animated.View>
+        {slides.map((slide, index) => {
+          return (
+            <Animated.View
+              key={slide.id}
+              style={[
+                styles.slideLayer,
+                {
+                  width: cardWidth,
+                  transform: [{ translateX: slideAnims[index] }]
+                }
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.92}
+                style={[styles.heroCard, { backgroundColor: slide.bg }]}
+                onPress={() => {
+                  if (onSelectCategory) {
+                    onSelectCategory(slide.category);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`${slide.tag} - ${slide.title}`}
+              >
+                <View style={[styles.ambientGlow, { backgroundColor: slide.accent }]} />
 
-        {/* TRANSITIONING NEXT SLIDE LAYER */}
-        {isTransitioning && nextSlideData ? (
-          <Animated.View
-            style={[
-              styles.slideLayer,
-              { width: cardWidth, transform: [{ translateX: nextTranslateX }] }
-            ]}
-          >
-            {renderSlideContent(nextSlideData)}
-          </Animated.View>
-        ) : null}
+                <View style={styles.contentWrap}>
+                  <View style={[styles.tagBadge, { borderColor: slide.accent }]}>
+                    <MaterialCommunityIcons name={slide.icon} size={13} color={slide.accent} />
+                    <Text style={[styles.tagText, { color: slide.accent }]}>{slide.tag}</Text>
+                  </View>
+
+                  <Text style={styles.titleText} numberOfLines={1}>
+                    {slide.title}
+                  </Text>
+                  <Text style={styles.subtitleText} numberOfLines={2}>
+                    {slide.subtitle}
+                  </Text>
+
+                  <View style={styles.btnRow}>
+                    <View style={[styles.actionBtn, { backgroundColor: slide.accent }]}>
+                      <Text style={styles.actionBtnText}>{slide.buttonLabel}</Text>
+                      <Ionicons name="arrow-forward" size={13} color="#0F172A" />
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          );
+        })}
       </View>
 
       {/* ANIMATED PAGINATION PILLS */}
       <View style={styles.paginationRow}>
         {slides.map((slide, i) => {
-          const isActive = (targetIndex !== null ? targetIndex : currentIndex) === i;
+          const isActive = activeDot === i;
 
           return (
             <Pressable
-              key={slide.id}
-              onPress={() => goToSlide(i, i > currentIndex ? 'next' : 'prev')}
+              key={`dot-${slide.id}`}
+              onPress={() => goToSlide(i, i > currIndexRef.current ? 'next' : 'prev')}
               hitSlop={8}
-              style={({ pressed }) => [
-                styles.dotWrap,
-                pressed && { opacity: 0.7 }
-              ]}
+              style={({ pressed }) => [styles.dotWrap, pressed && { opacity: 0.7 }]}
               accessibilityRole="button"
               accessibilityLabel={`Slide ${i + 1}`}
             >
@@ -320,7 +322,7 @@ const styles = StyleSheet.create({
     height: 154,
     borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: '#0B1220', // Solid dark base prevents any white flash
+    backgroundColor: '#0B1220',
     position: 'relative',
     ...shadows.card
   },
