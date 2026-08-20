@@ -1,7 +1,8 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Image,
   Keyboard,
@@ -28,7 +29,7 @@ import { toast } from '../utils/toast';
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const phonePattern = /^[+0-9\s\-()]{7,20}$/;
+const phonePattern = /^[6-9]\d{9}$|^[+0-9\s\-()]{10,15}$/;
 
 const maskEmail = (value: string) => {
   const [name, domain] = value.trim().split('@');
@@ -40,9 +41,9 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const { loading } = useAppSelector((state) => state.auth);
 
-  // Form State
+  // Form State - all fields start EMPTY initially
   const [name, setName] = useState('');
-  const [companyName, setCompanyName] = useState('AP Enterprises');
+  const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -103,26 +104,57 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     setFieldErrors((curr) => ({ ...curr, email: '' }));
   };
 
+  // Inline Validator for specific fields
+  const validateField = (fieldName: string, value: string) => {
+    let err = '';
+    if (fieldName === 'name') {
+      if (!value.trim()) err = 'Full name is required';
+      else if (value.trim().length < 2) err = 'Full name must be at least 2 characters';
+    } else if (fieldName === 'company') {
+      if (!value.trim()) err = 'Company / Store name is required';
+      else if (value.trim().length < 2) err = 'Company / Store name must be at least 2 characters';
+    } else if (fieldName === 'email') {
+      if (!value.trim()) err = 'Business email is required';
+      else if (!emailPattern.test(value.trim())) err = 'Enter a valid business email address';
+    } else if (fieldName === 'phone') {
+      if (!value.trim()) err = 'Contact phone number is required';
+      else if (!phonePattern.test(value.trim().replace(/\s/g, ''))) err = 'Enter a valid 10-digit mobile number';
+    } else if (fieldName === 'password') {
+      if (!value) err = 'Password is required';
+      else if (value.length < 6) err = 'Password must be at least 6 characters';
+    } else if (fieldName === 'confirmPassword') {
+      if (!value) err = 'Please confirm your password';
+      else if (value !== password) err = 'Passwords do not match';
+    }
+    setFieldErrors((curr) => ({ ...curr, [fieldName]: err }));
+    return !err;
+  };
+
+  // Full form validation
   const validateForm = () => {
     const next: Record<string, string> = {};
 
-    if (name.trim().length < 2) {
+    if (!name.trim() || name.trim().length < 2) {
       next.name = 'Full name must be at least 2 characters';
     }
 
-    if (!emailPattern.test(email.trim())) {
+    if (!companyName.trim() || companyName.trim().length < 2) {
+      next.company = 'Company / Store name is required';
+    }
+
+    if (!email.trim() || !emailPattern.test(email.trim())) {
       next.email = 'Enter a valid business email address';
     }
 
-    if (phone.trim().length > 0 && !phonePattern.test(phone.trim())) {
-      next.phone = 'Enter a valid contact phone number';
+    if (!phone.trim() || !phonePattern.test(phone.trim().replace(/\s/g, ''))) {
+      next.phone = 'Enter a valid 10-digit mobile phone number';
     }
 
-    if (password.length < 6) {
+    if (!password || password.length < 6) {
       next.password = 'Password must be at least 6 characters';
     }
 
-    if (password !== confirmPassword) {
+    if (!confirmPassword || password !== confirmPassword) {
       next.confirmPassword = 'Passwords do not match';
     }
 
@@ -144,10 +176,10 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     setError('');
     const cleanEmail = email.trim().toLowerCase();
 
-    if (!emailPattern.test(cleanEmail)) {
+    if (!cleanEmail || !emailPattern.test(cleanEmail)) {
       setFieldErrors((curr) => ({ ...curr, email: 'Enter a valid business email first' }));
       toast.show('Please enter a valid email address first.', 'error');
-      scrollToInput(120);
+      scrollToInput(180);
       return;
     }
 
@@ -156,21 +188,21 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     setOtpLoading(true);
 
     try {
-      await api.post('/auth/request-otp', { email: cleanEmail });
+      const response = await api.post('/auth/request-otp', { email: cleanEmail });
       setOtpSent(true);
       setOtpVerified(false);
       setOtp('');
       setSeconds(45);
       toast.show(`Verification code sent to ${maskEmail(cleanEmail)}`, 'success', 'Code Sent');
-      scrollToInput(280);
+      scrollToInput(300);
     } catch (requestError: any) {
       const status = requestError?.response?.status;
       const message =
         status === 409
-          ? 'This email is already registered. Please sign in.'
+          ? 'This email is already registered. Please log in.'
           : status === 429
           ? 'Please wait before requesting another code.'
-          : requestError?.response?.data?.message || 'Unable to send verification email.';
+          : requestError?.response?.data?.message || 'Unable to send verification email. Please try again.';
       setError(message);
       toast.show(message, 'error');
     } finally {
@@ -206,15 +238,15 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     setError('');
 
     if (!validateForm()) {
-      toast.show('Please fix the highlighted fields to continue.', 'error');
+      toast.show('Please fill in all mandatory fields correctly.', 'error');
       return;
     }
 
     if (!otpVerified) {
-      setError('Please verify your email address before creating your account.');
+      setError('Please verify your email address with the 6-digit code before registering.');
       otpInputRef.current?.shake();
       toast.show('Verify your email with the 6-digit code first.', 'error');
-      scrollToInput(280);
+      scrollToInput(300);
       return;
     }
 
@@ -226,7 +258,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
       await dispatch(
         register({
           name: name.trim(),
-          companyName: companyName.trim() || 'AP Enterprises',
+          companyName: companyName.trim(),
           email: email.trim().toLowerCase(),
           phone: phone.trim(),
           password,
@@ -259,7 +291,12 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
     >
-      <BeverageLoader visible={submitting} mode="auth" title="AP Enterprises" subtitle="Setting up your wholesale account..." />
+      <BeverageLoader
+        visible={submitting}
+        mode="auth"
+        title="AP Enterprises"
+        subtitle="Setting up your wholesale account..."
+      />
 
       <ScrollView
         ref={scrollViewRef}
@@ -278,7 +315,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             </View>
             <Text style={styles.title}>Wholesale Registration</Text>
             <Text style={styles.subtitle}>
-              Direct B2B Beverage Supply • Bulk Pallet & Case Ordering
+              Beverages • Farm Fresh Eggs • Wholesale Supplies
             </Text>
           </View>
 
@@ -292,7 +329,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
 
           {/* FORM FIELDS */}
           <View style={styles.formSection}>
-            {/* FULL NAME */}
+            {/* 1. FULL NAME */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>
                 Full Name <Text style={styles.requiredStar}>*</Text>
@@ -311,18 +348,21 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                 />
                 <NativeTextInput
                   style={styles.input}
-                  placeholder="e.g. Aniket Singh"
+                  placeholder="Enter your full name"
                   placeholderTextColor={colors.textMuted}
                   value={name}
                   onChangeText={(v) => {
                     setName(v);
-                    setFieldErrors((c) => ({ ...c, name: '' }));
+                    if (fieldErrors.name) validateField('name', v);
                   }}
                   onFocus={() => {
                     setFocusedField('name');
-                    scrollToInput(60);
+                    scrollToInput(40);
                   }}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('name', name);
+                  }}
                   autoCapitalize="words"
                   accessibilityLabel="Full name"
                 />
@@ -330,13 +370,16 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               {fieldErrors.name ? <Text style={styles.errorText}>{fieldErrors.name}</Text> : null}
             </View>
 
-            {/* COMPANY NAME */}
+            {/* 2. COMPANY / STORE NAME */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Company / Store Name</Text>
+              <Text style={styles.fieldLabel}>
+                Company / Store Name <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View
                 style={[
                   styles.inputWrap,
-                  focusedField === 'company' && styles.inputFocused
+                  focusedField === 'company' && styles.inputFocused,
+                  Boolean(fieldErrors.company) && styles.inputError
                 ]}
               >
                 <MaterialCommunityIcons
@@ -346,21 +389,28 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                 />
                 <NativeTextInput
                   style={styles.input}
-                  placeholder="AP Enterprises"
+                  placeholder="Enter company or store name"
                   placeholderTextColor={colors.textMuted}
                   value={companyName}
-                  onChangeText={setCompanyName}
+                  onChangeText={(v) => {
+                    setCompanyName(v);
+                    if (fieldErrors.company) validateField('company', v);
+                  }}
                   onFocus={() => {
                     setFocusedField('company');
-                    scrollToInput(110);
+                    scrollToInput(100);
                   }}
-                  onBlur={() => setFocusedField(null)}
-                  accessibilityLabel="Company name"
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('company', companyName);
+                  }}
+                  accessibilityLabel="Company or store name"
                 />
               </View>
+              {fieldErrors.company ? <Text style={styles.errorText}>{fieldErrors.company}</Text> : null}
             </View>
 
-            {/* BUSINESS EMAIL WITH OTP ACTION */}
+            {/* 3. BUSINESS EMAIL WITH OTP ACTION */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>
                 Business Email <Text style={styles.requiredStar}>*</Text>
@@ -398,7 +448,10 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                     setFocusedField('email');
                     scrollToInput(160);
                   }}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('email', email);
+                  }}
                   accessibilityLabel="Business email"
                 />
                 {!otpVerified ? (
@@ -407,15 +460,13 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                     disabled={otpLoading || seconds > 0}
                     style={[styles.otpSendBtn, (otpLoading || seconds > 0) && styles.otpSendBtnDisabled]}
                   >
-                    <Text style={styles.otpSendBtnText}>
-                      {otpLoading
-                        ? 'Sending…'
-                        : seconds > 0
-                        ? `${seconds}s`
-                        : otpSent
-                        ? 'Resend'
-                        : 'Send Code'}
-                    </Text>
+                    {otpLoading ? (
+                      <ActivityIndicator size="small" color={colors.white} />
+                    ) : (
+                      <Text style={styles.otpSendBtnText}>
+                        {seconds > 0 ? `${seconds}s` : otpSent ? 'Resend' : 'Send Code'}
+                      </Text>
+                    )}
                   </Pressable>
                 ) : (
                   <View style={styles.verifiedBadge}>
@@ -431,7 +482,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             {otpSent && !otpVerified ? (
               <View style={styles.otpSection}>
                 <View style={styles.otpHeaderRow}>
-                  <Text style={styles.otpSectionTitle}>Enter 6-Digit Email Code</Text>
+                  <Text style={styles.otpSectionTitle}>Enter 6-Digit Verification Code</Text>
                   {seconds > 0 ? (
                     <Text style={styles.resendTimerText}>Resend in {seconds}s</Text>
                   ) : (
@@ -462,11 +513,15 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                     (otp.length !== 6 || otpVerified) && styles.buttonDisabled
                   ]}
                 >
-                  <MaterialCommunityIcons
-                    name="shield-check-outline"
-                    size={18}
-                    color={colors.white}
-                  />
+                  {otpVerifying ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
+                    <MaterialCommunityIcons
+                      name="shield-check-outline"
+                      size={18}
+                      color={colors.white}
+                    />
+                  )}
                   <Text style={styles.verifyButtonText}>
                     {otpVerifying ? 'Verifying Code…' : 'Verify Email Code'}
                   </Text>
@@ -474,9 +529,11 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             ) : null}
 
-            {/* PHONE NUMBER */}
+            {/* 4. CONTACT PHONE NUMBER */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Contact Phone Number</Text>
+              <Text style={styles.fieldLabel}>
+                Contact Phone Number <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View
                 style={[
                   styles.inputWrap,
@@ -491,26 +548,29 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                 />
                 <NativeTextInput
                   style={styles.input}
-                  placeholder="+1 (555) 000-0000"
+                  placeholder="Enter 10-digit mobile number (e.g. 9876543210)"
                   placeholderTextColor={colors.textMuted}
                   value={phone}
                   onChangeText={(v) => {
                     setPhone(v);
-                    setFieldErrors((c) => ({ ...c, phone: '' }));
+                    if (fieldErrors.phone) validateField('phone', v);
                   }}
                   keyboardType="phone-pad"
                   onFocus={() => {
                     setFocusedField('phone');
                     scrollToInput(360);
                   }}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('phone', phone);
+                  }}
                   accessibilityLabel="Contact phone"
                 />
               </View>
               {fieldErrors.phone ? <Text style={styles.errorText}>{fieldErrors.phone}</Text> : null}
             </View>
 
-            {/* PASSWORD */}
+            {/* 5. PASSWORD */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>
                 Password <Text style={styles.requiredStar}>*</Text>
@@ -534,14 +594,17 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                   value={password}
                   onChangeText={(v) => {
                     setPassword(v);
-                    setFieldErrors((c) => ({ ...c, password: '' }));
+                    if (fieldErrors.password) validateField('password', v);
                   }}
                   secureTextEntry={!showPassword}
                   onFocus={() => {
                     setFocusedField('password');
                     scrollToInput(420);
                   }}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('password', password);
+                  }}
                   accessibilityLabel="Password"
                 />
                 <Pressable
@@ -561,7 +624,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               ) : null}
             </View>
 
-            {/* CONFIRM PASSWORD */}
+            {/* 6. CONFIRM PASSWORD */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>
                 Confirm Password <Text style={styles.requiredStar}>*</Text>
@@ -587,19 +650,22 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                 />
                 <NativeTextInput
                   style={[styles.input, { flex: 1 }]}
-                  placeholder="Re-enter password"
+                  placeholder="Re-enter password to confirm"
                   placeholderTextColor={colors.textMuted}
                   value={confirmPassword}
                   onChangeText={(v) => {
                     setConfirmPassword(v);
-                    setFieldErrors((c) => ({ ...c, confirmPassword: '' }));
+                    if (fieldErrors.confirmPassword) validateField('confirmPassword', v);
                   }}
                   secureTextEntry={!showConfirmPassword}
                   onFocus={() => {
                     setFocusedField('confirmPassword');
                     scrollToInput(480);
                   }}
-                  onBlur={() => setFocusedField(null)}
+                  onBlur={() => {
+                    setFocusedField(null);
+                    validateField('confirmPassword', confirmPassword);
+                  }}
                   accessibilityLabel="Confirm password"
                 />
                 <Pressable
@@ -618,32 +684,28 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
                 <Text style={styles.errorText}>{fieldErrors.confirmPassword}</Text>
               ) : null}
             </View>
-
-            {/* SUBMIT BUTTON */}
-            <Pressable
-              onPress={submitRegistration}
-              disabled={loading || submitting}
-              style={({ pressed }) => [
-                styles.submitButton,
-                (loading || submitting) && styles.buttonDisabled,
-                pressed && { backgroundColor: colors.primaryPressed }
-              ]}
-            >
-              <MaterialCommunityIcons name="account-plus" size={20} color={colors.white} />
-              <Text style={styles.submitButtonText}>
-                {submitting ? 'Creating Account…' : 'Create Wholesale Account'}
-              </Text>
-            </Pressable>
-
-            <Text style={styles.termsText}>
-              By creating an account, you agree to AP Enterprises wholesale beverage terms and conditions.
-            </Text>
           </View>
 
-          {/* FOOTER SWITCH */}
+          {/* SUBMIT BUTTON */}
+          <Pressable
+            onPress={submitRegistration}
+            disabled={submitting || loading}
+            style={({ pressed }) => [
+              styles.submitBtn,
+              (submitting || loading) && styles.buttonDisabled,
+              pressed && styles.submitBtnPressed
+            ]}
+          >
+            <MaterialCommunityIcons name="account-plus" size={20} color={colors.white} />
+            <Text style={styles.submitBtnText}>
+              {submitting ? 'Creating Account…' : 'Create Wholesale Account'}
+            </Text>
+          </Pressable>
+
+          {/* FOOTER NAVIGATION */}
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>Already have an account?</Text>
-            <Pressable onPress={() => navigation.navigate('Login')} hitSlop={6}>
+            <Pressable onPress={() => navigation.navigate('Login')} hitSlop={8}>
               <Text style={styles.footerLink}>Sign In</Text>
             </Pressable>
           </View>
@@ -659,19 +721,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg
   },
   scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 18,
-    paddingTop: Platform.OS === 'ios' ? 54 : 36,
+    paddingTop: 16,
     paddingBottom: 40
   },
   mainCard: {
     backgroundColor: colors.card,
     borderRadius: radius.xl,
+    padding: 24,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 22,
-    paddingVertical: 28,
     ...shadows.card
   },
   header: {
@@ -679,46 +738,49 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   brandIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    overflow: 'hidden',
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
-    ...shadows.card
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden'
   },
   logoImage: {
-    width: '100%',
-    height: '100%'
+    width: 58,
+    height: 58,
+    borderRadius: 14
   },
   headerBadge: {
     backgroundColor: colors.infoSurface,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-    borderWidth: 1,
     borderColor: colors.infoBorder,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 3,
     marginBottom: 6
   },
   headerBadgeText: {
-    color: colors.primary,
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '900',
+    color: colors.primary,
     letterSpacing: 0.8
   },
   title: {
-    color: colors.navy,
-    fontSize: 22,
+    fontSize: 23,
     fontWeight: '900',
+    color: colors.text,
     textAlign: 'center'
   },
   subtitle: {
-    color: colors.textSecondary,
     fontSize: 12.5,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 4,
-    lineHeight: 17
+    lineHeight: 18
   },
   errorBanner: {
     flexDirection: 'row',
@@ -733,34 +795,35 @@ const styles = StyleSheet.create({
   },
   errorBannerText: {
     color: colors.danger,
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '700',
     flex: 1
   },
   formSection: {
-    gap: 14
+    gap: 16
   },
   fieldGroup: {
-    gap: 5
+    gap: 6
   },
   fieldLabel: {
-    color: colors.text,
-    fontSize: 12.5,
-    fontWeight: '700'
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text
   },
   requiredStar: {
-    color: colors.danger
+    color: colors.danger,
+    fontWeight: '900'
   },
   inputWrap: {
-    minHeight: 50,
-    borderRadius: radius.md,
-    backgroundColor: colors.bg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    gap: 10
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 13,
+    minHeight: 48,
+    gap: 9
   },
   inputFocused: {
     borderColor: colors.primary,
@@ -778,33 +841,48 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.text,
     fontSize: 14,
-    paddingVertical: 0
+    fontWeight: '600',
+    paddingVertical: 10
   },
-  eyeBtn: {
-    padding: 4
+  errorText: {
+    color: colors.danger,
+    fontSize: 11.5,
+    fontWeight: '700',
+    marginTop: 2,
+    marginLeft: 2
   },
   otpSendBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: radius.sm
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 84
   },
   otpSendBtnDisabled: {
-    backgroundColor: colors.cardAlt
+    backgroundColor: colors.textMuted,
+    opacity: 0.8
   },
   otpSendBtnText: {
     color: colors.white,
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: '800'
   },
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4
+    gap: 4,
+    backgroundColor: colors.successSurface,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.successBorder
   },
   verifiedBadgeText: {
     color: colors.success,
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800'
   },
   otpSection: {
@@ -813,7 +891,7 @@ const styles = StyleSheet.create({
     borderColor: colors.infoBorder,
     borderRadius: radius.lg,
     padding: 16,
-    gap: 10
+    gap: 12
   },
   otpHeaderRow: {
     flexDirection: 'row',
@@ -821,80 +899,75 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   otpSectionTitle: {
-    color: colors.navy,
     fontSize: 13,
-    fontWeight: '900'
+    fontWeight: '800',
+    color: colors.primary
   },
   resendTimerText: {
-    color: colors.textMuted,
-    fontSize: 11.5,
+    fontSize: 12,
+    color: colors.textSecondary,
     fontWeight: '700'
   },
   resendActiveText: {
-    color: colors.primary,
     fontSize: 12,
+    color: colors.primary,
     fontWeight: '800'
   },
   verifyButton: {
-    minHeight: 44,
-    borderRadius: radius.md,
     backgroundColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginTop: 4
+    paddingVertical: 11,
+    borderRadius: radius.md,
+    gap: 6
   },
   verifyButtonText: {
     color: colors.white,
     fontSize: 13.5,
     fontWeight: '800'
   },
-  submitButton: {
-    minHeight: 52,
-    borderRadius: radius.md,
+  eyeBtn: {
+    padding: 4
+  },
+  submitBtn: {
     backgroundColor: colors.primary,
+    borderRadius: radius.lg,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 10
+    marginTop: 24,
+    ...shadows.floating
   },
-  submitButtonText: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '900'
+  submitBtnPressed: {
+    backgroundColor: colors.primaryPressed
   },
   buttonDisabled: {
-    opacity: 0.55
+    opacity: 0.6
   },
-  errorText: {
-    color: colors.danger,
-    fontSize: 11.5,
-    fontWeight: '600',
-    marginTop: 2
-  },
-  termsText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 15,
-    marginTop: 4
+  submitBtnText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.3
   },
   footerRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    marginTop: 22
+    marginTop: 18
   },
   footerText: {
     color: colors.textSecondary,
-    fontSize: 13
+    fontSize: 13,
+    fontWeight: '600'
   },
   footerLink: {
     color: colors.primary,
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '900'
   }
 });

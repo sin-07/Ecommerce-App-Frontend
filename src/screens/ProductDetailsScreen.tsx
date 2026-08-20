@@ -131,16 +131,30 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
     navigation.navigate('Cart');
   };
 
+  const [imageError, setImageError] = useState(false);
+  const showImage = Boolean(imageUri) && !imageError;
+
   return (
     <ScreenContainer>
       {/* HERO IMAGE CONTAINER */}
       <View style={styles.heroCard}>
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+        {showImage ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.image}
+            resizeMode="cover"
+            onError={() => setImageError(true)}
+          />
         ) : (
           <View style={styles.noImageWrap}>
             <MaterialCommunityIcons
-              name={resolved.category?.toLowerCase().includes('egg') ? 'egg-outline' : 'bottle-soda-classic-outline'}
+              name={
+                resolved.category?.toLowerCase().includes('egg')
+                  ? 'egg-outline'
+                  : resolved.category?.toLowerCase().includes('bev')
+                  ? 'bottle-soda-classic-outline'
+                  : 'package-variant-closed'
+              }
               size={64}
               color={colors.primary}
             />

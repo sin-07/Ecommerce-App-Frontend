@@ -404,7 +404,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
                   keyboardType="phone-pad"
-                  placeholder="e.g. +1 555 123-4567"
+                  placeholder="Enter 10-digit mobile number"
                   placeholderTextColor={colors.textMuted}
                 />
               </View>

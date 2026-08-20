@@ -68,11 +68,15 @@ const ProductCardBase: React.FC<Props> = ({
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [cartCount]);
 
+  const [imageError, setImageError] = React.useState(false);
+
   const imageUri = product.imageUrl
     ? product.imageUrl.startsWith('http')
       ? product.imageUrl
       : `${API_BASE_URL.replace('/api', '')}${product.imageUrl}`
     : '';
+
+  const showImage = Boolean(imageUri) && !imageError;
 
   const stockStatus = getStockStatus(product.stock);
   const stockTone = getStockTone(product.stock);
@@ -98,16 +102,23 @@ const ProductCardBase: React.FC<Props> = ({
         disabled={!onView}
         style={({ pressed }) => [styles.imageWrap, pressed && styles.pressed]}
       >
-        {imageUri ? (
+        {showImage ? (
           <Image
             source={{ uri: imageUri }}
             style={[styles.image, isOutOfStock && styles.imageMuted]}
             resizeMode="cover"
+            onError={() => setImageError(true)}
           />
         ) : (
           <View style={styles.imageFallback}>
             <MaterialCommunityIcons
-              name={product.category?.toLowerCase().includes('egg') ? 'egg-outline' : 'bottle-soda-classic-outline'}
+              name={
+                product.category?.toLowerCase().includes('egg')
+                  ? 'egg-outline'
+                  : product.category?.toLowerCase().includes('bev')
+                  ? 'bottle-soda-classic-outline'
+                  : 'package-variant-closed'
+              }
               size={42}
               color={colors.primary}
             />
