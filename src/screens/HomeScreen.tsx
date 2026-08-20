@@ -24,6 +24,7 @@ import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
 import { EmptyState, ErrorView } from '../components/StateViews';
+import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
 import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
@@ -46,36 +47,6 @@ const CATEGORIES = [
   { id: 'Existing Products', label: 'Wholesale Supplies', icon: 'cube-outline' }
 ];
 
-const PROMO_SLIDES = [
-  {
-    id: 'bev',
-    title: 'Chilled Beverages Wholesale',
-    subtitle: 'Coca-Cola, Pepsi, Sprite, Red Bull in Bulk Crates & Cans',
-    tag: '⚡ DIRECT FACTORY SUPPLY',
-    bg: '#0F172A',
-    accent: '#38BDF8',
-    category: 'Beverages'
-  },
-  {
-    id: 'egg',
-    title: 'Daily Fresh Farm Eggs',
-    subtitle: 'Grade-A Table Eggs, Country Brown Eggs in Trays of 30',
-    tag: '🥚 100% FARM FRESH',
-    bg: '#451A03',
-    accent: '#FBBF24',
-    category: 'Eggs'
-  },
-  {
-    id: 'fast',
-    title: 'Same-Day Bulk Dispatch',
-    subtitle: 'Free B2B Wholesale Delivery on Qualified Commercial Orders',
-    tag: '🚚 EXPRESS LOGISTICS',
-    bg: '#064E3B',
-    accent: '#34D399',
-    category: ''
-  }
-];
-
 export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
@@ -87,7 +58,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(route.params?.initialCategory || '');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high'>('all');
-  const [activeSlide, setActiveSlide] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
@@ -354,51 +324,9 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
       {/* HERO / PROMO BANNER CAROUSEL */}
       {!search && (
-        <View style={styles.heroSection}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={(e) => {
-              const offset = e.nativeEvent.contentOffset.x;
-              const index = Math.round(offset / (SCREEN_WIDTH - 32));
-              setActiveSlide(index);
-            }}
-            scrollEventThrottle={16}
-          >
-            {PROMO_SLIDES.map((slide) => (
-              <TouchableOpacity
-                key={slide.id}
-                activeOpacity={0.92}
-                style={[styles.heroCard, { backgroundColor: slide.bg, width: SCREEN_WIDTH - 32 }]}
-                onPress={() => {
-                  if (slide.category) {
-                    setCategory(slide.category);
-                  }
-                }}
-              >
-                <View style={styles.heroTextContent}>
-                  <View style={[styles.heroTag, { borderColor: slide.accent }]}>
-                    <Text style={[styles.heroTagText, { color: slide.accent }]}>{slide.tag}</Text>
-                  </View>
-                  <Text style={styles.heroTitle}>{slide.title}</Text>
-                  <Text style={styles.heroSubtitle}>{slide.subtitle}</Text>
-                  <View style={[styles.heroShopBtn, { backgroundColor: slide.accent }]}>
-                    <Text style={styles.heroShopText}>Explore Supply</Text>
-                    <Ionicons name="arrow-forward" size={14} color="#0F172A" />
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* DOT INDICATORS */}
-          <View style={styles.dotRow}>
-            {PROMO_SLIDES.map((_, i) => (
-              <View key={i} style={[styles.dot, activeSlide === i && styles.dotActive]} />
-            ))}
-          </View>
-        </View>
+        <PromoBannerCarousel
+          onSelectCategory={(cat) => setCategory(cat)}
+        />
       )}
 
       {/* CATEGORY TABS */}
