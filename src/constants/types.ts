@@ -44,23 +44,42 @@ export interface CartItem {
 }
 
 export interface OrderItem {
-  product: string;
-  seller: string;
+  product: string | Product;
+  seller?: string;
   name: string;
+  imageUrl?: string;
+  category?: string;
+  unit?: string;
+  packSize?: string;
   quantity: number;
   unitPrice: number;
+  subtotal?: number;
   lineTotal: number;
+}
+
+export interface DeliveryAddressDetails {
+  fullName?: string;
+  phone?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export interface Order {
   _id: string;
-  buyer: string;
+  buyer: string | { _id: string; name: string; email: string; phone?: string; companyName?: string };
   customerName: string;
   phoneNumber: string;
   items: OrderItem[];
+  subtotal?: number;
+  deliveryFee?: number;
+  discount?: number;
   totalAmount: number;
   status: 'pending' | 'packed' | 'shipped' | 'delivered' | 'cancelled';
   shippingAddress: string;
+  deliveryAddressDetails?: DeliveryAddressDetails;
   notes?: string;
   createdAt: string;
 }

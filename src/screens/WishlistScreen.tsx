@@ -17,6 +17,7 @@ import { addCartItem } from '../redux/slices/cartSlice';
 import { Product } from '../constants/types';
 import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wishlist'>;
@@ -88,7 +89,7 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
             </Text>
 
             <View style={styles.priceRow}>
-              <Text style={styles.price}>₹{Number(item.price).toFixed(2)}</Text>
+              <Text style={styles.price}>{formatINR(item.price)}</Text>
               {item.unit ? <Text style={styles.unit}>/{item.unit}</Text> : null}
             </View>
 

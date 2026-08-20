@@ -25,6 +25,7 @@ import { RootStackParamList } from '../navigation/types';
 import { clearCart, fetchCart, hydrateCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
 import { placeOrder } from '../redux/slices/orderSlice';
 import { getLinePricing } from '../utils/pricing';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Cart'>;
@@ -70,11 +71,11 @@ const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps
             {item.product.name}
           </Text>
           <Text style={styles.itemMeta}>
-            ₹{Number(line.unitPrice).toFixed(2)} / {unit} • Min: {moq}
+            {formatINR(line.unitPrice)} / {unit} • Min: {moq}
           </Text>
-          <Text style={styles.lineTotal}>₹{Number(line.subtotal).toFixed(2)}</Text>
+          <Text style={styles.lineTotal}>{formatINR(line.subtotal)}</Text>
           {line.savings > 0 ? (
-            <Text style={styles.savings}>Bulk savings: -₹{Number(line.savings).toFixed(2)}</Text>
+            <Text style={styles.savings}>Bulk savings: -{formatINR(line.savings)}</Text>
           ) : null}
         </View>
         <Pressable
@@ -346,13 +347,13 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Base Subtotal:</Text>
-              <Text style={styles.summaryValue}>₹{(summary.subtotal + summary.savings).toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>{formatINR(summary.subtotal + summary.savings)}</Text>
             </View>
 
             {summary.savings > 0 ? (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Wholesale Discount:</Text>
-                <Text style={styles.savingsText}>-₹{summary.savings.toFixed(2)}</Text>
+                <Text style={styles.savingsText}>-{formatINR(summary.savings)}</Text>
               </View>
             ) : null}
 
@@ -365,7 +366,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
             <View style={styles.summaryRow}>
               <Text style={styles.grandLabel}>Total Order Amount:</Text>
-              <Text style={styles.grandValue}>₹{summary.subtotal.toFixed(2)}</Text>
+              <Text style={styles.grandValue}>{formatINR(summary.subtotal)}</Text>
             </View>
           </View>
 
@@ -459,7 +460,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             >
               <MaterialCommunityIcons name="truck-fast" size={20} color={colors.white} />
               <Text style={styles.checkoutButtonText}>
-                {submittingOrder ? 'Processing Order…' : `Place Wholesale Order  •  ₹${summary.subtotal.toFixed(2)}`}
+                {submittingOrder ? 'Processing Order…' : `Place Wholesale Order  •  ${formatINR(summary.subtotal)}`}
               </Text>
             </Pressable>
 

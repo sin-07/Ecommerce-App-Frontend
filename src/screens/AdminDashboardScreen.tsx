@@ -24,6 +24,7 @@ import { Order } from '../constants/types';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { logout } from '../redux/slices/authSlice';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 
 type Dashboard = {
@@ -264,7 +265,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
                   <MaterialCommunityIcons name="cash-multiple" size={20} color={colors.navy} />
                 </View>
                 <Text style={styles.kpiValue}>
-                  {loading ? '—' : `$${(dashboard?.revenue || 0).toFixed(0)}`}
+                  {loading ? '—' : formatINR(dashboard?.revenue || 0, false)}
                 </Text>
                 <Text style={styles.kpiLabel}>Gross Revenue</Text>
               </View>
@@ -370,8 +371,8 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
                       </View>
                     </View>
                     <View style={styles.orderBottomRow}>
-                      <Text style={styles.orderCases}>{totalCases} cases ordered</Text>
-                      <Text style={styles.orderAmount}>${order.totalAmount.toFixed(2)}</Text>
+                      <Text style={styles.orderCases}>{totalCases} items ordered</Text>
+                      <Text style={styles.orderAmount}>{formatINR(order.totalAmount)}</Text>
                     </View>
                   </TouchableOpacity>
                 );

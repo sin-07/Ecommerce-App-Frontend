@@ -12,6 +12,7 @@ import { RootStackParamList } from '../navigation/types';
 import { addCartItem, fetchCart, hydrateCart, updateCartItem } from '../redux/slices/cartSlice';
 import { fetchProductById } from '../redux/slices/productSlice';
 import { toggleWishlist } from '../redux/slices/wishlistSlice';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 import { ProductCard } from '../components/ProductCard';
 import { Product } from '../constants/types';
@@ -218,8 +219,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
 
         <View style={styles.priceContainer}>
           <View style={styles.priceRow}>
-            <Text style={styles.currencySymbol}>₹</Text>
-            <Text style={styles.priceText}>{Number(resolved.price).toFixed(2)}</Text>
+            <Text style={styles.priceText}>{formatINR(resolved.price)}</Text>
             <Text style={styles.unitText}>/{unitName}</Text>
           </View>
           {resolved.discount ? (
@@ -247,7 +247,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
         ) : null}
         <View style={styles.detailRow}>
           <Text style={styles.label}>Unit Price</Text>
-          <Text style={styles.value}>₹{Number(resolved.price).toFixed(2)} per {unitName}</Text>
+          <Text style={styles.value}>{formatINR(resolved.price)} per {unitName}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Warehouse Stock</Text>
@@ -291,11 +291,11 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
         <View style={styles.pricingSummary}>
           <View style={styles.detailRow}>
             <Text style={styles.label}>Price per {unitName}</Text>
-            <Text style={styles.value}>₹{Number(resolved.price).toFixed(2)}</Text>
+            <Text style={styles.value}>{formatINR(resolved.price)}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.label}>Calculated Subtotal ({quantity} {unitName}s)</Text>
-            <Text style={styles.subtotalText}>₹{Number(subtotal).toFixed(2)}</Text>
+            <Text style={styles.subtotalText}>{formatINR(subtotal)}</Text>
           </View>
         </View>
 

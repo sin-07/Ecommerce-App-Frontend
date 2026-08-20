@@ -1,16 +1,34 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  FlatList,
+  Image,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  UIManager,
+  View
+} from 'react-native';
+import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { EmptyState, ErrorView, LoadingView } from '../components/StateViews';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
+import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
+import { Order, OrderItem } from '../constants/types';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { fetchAdminOrders, fetchBuyerOrders, fetchSellerOrders, updateOrderStatus } from '../redux/slices/orderSlice';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Orders'>;
 
@@ -20,7 +38,7 @@ const statusActionConfig: Record<
   string,
   { nextStatus: (typeof statusFlow)[number]; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; variant: 'primary' | 'success' }
 > = {
-  pending: { nextStatus: 'packed', label: 'Confirm Beverage Order', icon: 'check-circle-outline', variant: 'primary' },
+  pending: { nextStatus: 'packed', label: 'Confirm Order (Pack Items)', icon: 'check-circle-outline', variant: 'primary' },
   packed: { nextStatus: 'shipped', label: 'Dispatch Order (Notify Buyer)', icon: 'truck-fast-outline', variant: 'primary' },
   shipped: { nextStatus: 'delivered', label: 'Mark as Delivered', icon: 'check-decagram-outline', variant: 'success' }
 };
@@ -46,11 +64,42 @@ const statusTone = (status: string) => {
   }
 };
 
+const getItemImageUrl = (item: OrderItem): string => {
+  if (item.imageUrl) {
+    return item.imageUrl.startsWith('http')
+      ? item.imageUrl
+      : `${API_BASE_URL.replace('/api', '')}${item.imageUrl}`;
+  }
+  if (typeof item.product === 'object' && item.product && item.product.imageUrl) {
+    return item.product.imageUrl.startsWith('http')
+      ? item.product.imageUrl
+      : `${API_BASE_URL.replace('/api', '')}${item.product.imageUrl}`;
+  }
+  return '';
+};
+
+const getItemCategory = (item: OrderItem): string => {
+  if (item.category) return item.category;
+  if (typeof item.product === 'object' && item.product && item.product.category) {
+    return item.product.category;
+  }
+  return 'Wholesale';
+};
+
+const getItemUnit = (item: OrderItem): string => {
+  if (item.unit) return item.unit;
+  if (typeof item.product === 'object' && item.product && item.product.unit) {
+    return item.product.unit;
+  }
+  return 'unit';
+};
+
 export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const { items, loading, error } = useAppSelector((state) => state.orders);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
@@ -58,12 +107,20 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     if (user?.role === 'admin') dispatch(fetchAdminOrders());
   }, [dispatch, user?.role]);
 
+  const toggleExpand = (orderId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedOrders((prev) => ({
+      ...prev,
+      [orderId]: !prev[orderId]
+    }));
+  };
+
   const handleUpdateStatus = async (orderId: string, nextStatus: (typeof statusFlow)[number]) => {
     setUpdatingId(orderId);
     try {
       await dispatch(updateOrderStatus({ id: orderId, status: nextStatus })).unwrap();
       toast.show(
-        `Order #${orderId.slice(-6).toUpperCase()} updated to ${statusLabel[nextStatus]}. Customer notified by email.`,
+        `Order #${orderId.slice(-6).toUpperCase()} marked as ${statusLabel[nextStatus]}. Customer notified.`,
         'success',
         'Status Updated'
       );
@@ -81,7 +138,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
       </Pressable>
       <View style={{ flex: 1 }}>
         <Text style={styles.headerTitle}>Order Tracking</Text>
-        <Text style={styles.headerSubtitle}>AP Enterprises B2B Beverage Fulfillment</Text>
+        <Text style={styles.headerSubtitle}>AP Enterprises B2B Fulfillment & Supply</Text>
       </View>
     </View>
   );
@@ -90,7 +147,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         {header}
-        <LoadingView label="Loading beverage orders..." />
+        <LoadingView label="Loading wholesale orders..." />
       </SafeAreaView>
     );
   }
@@ -110,9 +167,9 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
       {!items.length ? (
         <View style={styles.emptyWrap}>
           <EmptyState
-            icon="bottle-soda-classic-outline"
-            title="No orders found"
-            description="Your wholesale beverage orders will appear here once placed."
+            icon="package-variant-closed"
+            title="No Orders Placed Yet"
+            description="Your wholesale beverage and egg orders will appear here once placed."
             actionLabel={user?.role === 'buyer' ? 'Browse Catalog' : 'Go Back'}
             onAction={() => (user?.role === 'buyer' ? navigation.navigate('Home') : navigation.goBack())}
           />
@@ -134,14 +191,43 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           }
           renderItem={({ item }) => {
+            const isExpanded = Boolean(expandedOrders[item._id]);
             const actionConfig = statusActionConfig[item.status];
             const tone = statusTone(item.status);
-            const date = new Date(item.createdAt).toLocaleDateString(undefined, {
+            const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
               day: '2-digit',
               month: 'short',
               year: 'numeric'
             });
-            const totalCases = item.items.reduce((sum, i) => sum + i.quantity, 0);
+
+            const totalUnits = (item.items || []).reduce((sum, i) => sum + Number(i.quantity || 0), 0);
+            const subtotal = item.subtotal || (item.items || []).reduce((sum, i) => sum + (i.lineTotal || i.unitPrice * i.quantity), 0);
+            const deliveryFee = item.deliveryFee || 0;
+            const discount = item.discount || 0;
+
+            const customerDisplayName =
+              item.customerName ||
+              item.deliveryAddressDetails?.fullName ||
+              (typeof item.buyer === 'object' && item.buyer?.name) ||
+              'Valued Wholesale Buyer';
+
+            const customerPhone =
+              item.phoneNumber ||
+              item.deliveryAddressDetails?.phone ||
+              (typeof item.buyer === 'object' && item.buyer?.phone) ||
+              '';
+
+            const formattedAddress =
+              item.shippingAddress ||
+              [
+                item.deliveryAddressDetails?.street,
+                item.deliveryAddressDetails?.city,
+                item.deliveryAddressDetails?.state,
+                item.deliveryAddressDetails?.postalCode,
+                item.deliveryAddressDetails?.country
+              ]
+                .filter(Boolean)
+                .join(', ');
 
             return (
               <View style={styles.card}>
@@ -160,25 +246,136 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                   </View>
                 </View>
 
-                {/* ORDER STATS BAR */}
+                {/* ORDER TOTAL & BRIEF SUMMARY BAR */}
                 <View style={styles.orderStats}>
                   <View>
-                    <Text style={styles.amount}>${item.totalAmount.toFixed(2)}</Text>
+                    <Text style={styles.amount}>{formatINR(item.totalAmount)}</Text>
                     <Text style={styles.meta}>
-                      {item.items.length} beverage line{item.items.length === 1 ? '' : 's'} • {totalCases} cases total
+                      {(item.items || []).length} product line{(item.items || []).length === 1 ? '' : 's'} • {totalUnits} total unit{totalUnits === 1 ? '' : 's'}
                     </Text>
                   </View>
-                  <View style={styles.beverageBadge}>
-                    <MaterialCommunityIcons name="bottle-soda-classic" size={20} color={colors.primary} />
-                  </View>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={styles.expandToggleBtn}
+                    onPress={() => toggleExpand(item._id)}
+                  >
+                    <Text style={styles.expandToggleText}>
+                      {isExpanded ? 'Hide Details' : 'View Details'}
+                    </Text>
+                    <Ionicons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={colors.primary}
+                    />
+                  </TouchableOpacity>
                 </View>
 
                 {/* TIMELINE PROGRESS */}
                 <OrderStatusTimeline status={item.status as any} />
 
-                {/* RESPONSIVE FULL-WIDTH ACTIONS */}
+                {/* EXPANDABLE ORDER DETAILS SECTION */}
+                {isExpanded ? (
+                  <View style={styles.expandedSection}>
+                    <View style={styles.divider} />
+
+                    {/* 1. ORDERED PRODUCT ITEMS */}
+                    <Text style={styles.detailsSectionTitle}>📦 Ordered Products</Text>
+                    <View style={styles.itemsList}>
+                      {(item.items || []).map((orderItem, idx) => {
+                        const imgUrl = getItemImageUrl(orderItem);
+                        const cat = getItemCategory(orderItem);
+                        const unitName = getItemUnit(orderItem);
+                        const isEgg = cat.toLowerCase().includes('egg');
+
+                        return (
+                          <View key={`item-${idx}`} style={styles.itemRow}>
+                            {/* Product Thumbnail */}
+                            <View style={styles.itemThumbWrap}>
+                              {imgUrl ? (
+                                <Image source={{ uri: imgUrl }} style={styles.itemThumb} resizeMode="cover" />
+                              ) : (
+                                <MaterialCommunityIcons
+                                  name={isEgg ? 'egg-outline' : 'bottle-soda-classic-outline'}
+                                  size={22}
+                                  color={colors.primary}
+                                />
+                              )}
+                            </View>
+
+                            {/* Item Details */}
+                            <View style={styles.itemInfo}>
+                              <Text style={styles.itemName} numberOfLines={1}>
+                                {orderItem.name}
+                              </Text>
+                              <Text style={styles.itemCategory}>
+                                {isEgg ? '🥚' : '🥤'} {cat} {orderItem.packSize ? `• ${orderItem.packSize}` : ''}
+                              </Text>
+                              <Text style={styles.itemQtyPrice}>
+                                {orderItem.quantity} {unitName}{orderItem.quantity > 1 ? 's' : ''} × {formatINR(orderItem.unitPrice)}
+                              </Text>
+                            </View>
+
+                            {/* Line Total */}
+                            <Text style={styles.itemSubtotal}>
+                              {formatINR(orderItem.lineTotal || orderItem.subtotal || orderItem.unitPrice * orderItem.quantity)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    {/* 2. DELIVERY ADDRESS */}
+                    <View style={styles.addressBlock}>
+                      <View style={styles.addressTitleRow}>
+                        <Ionicons name="location-outline" size={16} color={colors.primary} />
+                        <Text style={styles.addressTitle}>Delivery Address</Text>
+                      </View>
+
+                      <Text style={styles.addressRecipient}>{customerDisplayName}</Text>
+                      {customerPhone ? (
+                        <Text style={styles.addressPhone}>📞 {customerPhone}</Text>
+                      ) : null}
+                      <Text style={styles.addressBody}>
+                        {formattedAddress || 'Standard Warehouse / Store Address'}
+                      </Text>
+                      {item.notes ? (
+                        <Text style={styles.addressNotes}>📝 Note: {item.notes}</Text>
+                      ) : null}
+                    </View>
+
+                    {/* 3. FINANCIAL BREAKDOWN */}
+                    <View style={styles.priceBreakdown}>
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceLabel}>Items Subtotal</Text>
+                        <Text style={styles.priceVal}>{formatINR(subtotal)}</Text>
+                      </View>
+
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceLabel}>Delivery Charges</Text>
+                        <Text style={[styles.priceVal, deliveryFee === 0 && styles.freeDeliveryText]}>
+                          {deliveryFee === 0 ? 'FREE' : formatINR(deliveryFee)}
+                        </Text>
+                      </View>
+
+                      {discount > 0 ? (
+                        <View style={styles.priceRow}>
+                          <Text style={styles.priceLabel}>Wholesale Discount</Text>
+                          <Text style={styles.discountVal}>-{formatINR(discount)}</Text>
+                        </View>
+                      ) : null}
+
+                      <View style={[styles.priceRow, styles.totalRow]}>
+                        <Text style={styles.totalLabel}>Total Paid / Due</Text>
+                        <Text style={styles.totalVal}>{formatINR(item.totalAmount)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+
+                {/* ACTIONS */}
                 <View style={styles.actionsColumn}>
-                  {/* ADMIN / SELLER CONTEXT-AWARE STATUS UPDATE BUTTON */}
+                  {/* ADMIN STATUS ADVANCE BUTTON */}
                   {(user?.role === 'seller' || user?.role === 'admin') && actionConfig ? (
                     <AppButton
                       title={actionConfig.label}
@@ -219,68 +416,66 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 14
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border
   },
   backButton: {
-    width: 42,
-    height: 42,
+    width: 36,
+    height: 36,
     borderRadius: radius.md,
-    backgroundColor: colors.card,
+    backgroundColor: colors.cardAlt,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center'
   },
   headerTitle: {
-    color: colors.navy,
-    fontSize: 22,
+    color: colors.text,
+    fontSize: 17,
     fontWeight: '900'
   },
   headerSubtitle: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11.5,
     marginTop: 1
+  },
+  list: {
+    padding: 16,
+    gap: 14
   },
   emptyWrap: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 70
-  },
-  list: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-    gap: 14
+    padding: 24,
+    justifyContent: 'center'
   },
   intro: {
-    paddingVertical: 4,
-    marginBottom: 4
+    marginBottom: 6
   },
   introTitle: {
-    color: colors.navy,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '900'
   },
   introText: {
     color: colors.textSecondary,
-    fontSize: 13,
+    fontSize: 12.5,
     marginTop: 2
   },
   card: {
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
     borderRadius: radius.lg,
     padding: 16,
-    gap: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
     ...shadows.card
   },
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 8
+    alignItems: 'flex-start'
   },
   orderIdRow: {
     flexDirection: 'row',
@@ -288,24 +483,27 @@ const styles = StyleSheet.create({
     gap: 6
   },
   orderId: {
-    color: colors.navy,
-    fontSize: 16.5,
-    fontWeight: '900'
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.3
   },
   orderDate: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11.5,
+    fontWeight: '600',
     marginTop: 2
   },
   statusBadge: {
-    borderWidth: 1,
-    borderRadius: radius.pill,
     paddingHorizontal: 10,
-    paddingVertical: 5
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1
   },
   statusText: {
-    fontSize: 11.5,
-    fontWeight: '800'
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.4
   },
   orderStats: {
     flexDirection: 'row',
@@ -313,51 +511,213 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.cardAlt,
     borderRadius: radius.md,
-    padding: 12
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border
   },
   amount: {
-    color: colors.navy,
-    fontSize: 20,
+    color: colors.primary,
+    fontSize: 18,
     fontWeight: '900'
   },
   meta: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11.5,
+    fontWeight: '600',
     marginTop: 2
   },
-  beverageBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.infoSurface,
+  expandToggleBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: colors.card,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.infoBorder
+    borderColor: colors.border
   },
-  actionsColumn: {
-    flexDirection: 'column',
-    gap: 10,
-    width: '100%',
+  expandToggleText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.primary
+  },
+  expandedSection: {
+    gap: 12,
     paddingTop: 4
   },
-  detailsButton: {
-    width: '100%',
-    minHeight: 46,
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 4
+  },
+  detailsSectionTitle: {
+    color: colors.text,
+    fontSize: 13.5,
+    fontWeight: '900',
+    letterSpacing: 0.2
+  },
+  itemsList: {
+    backgroundColor: colors.cardAlt,
     borderRadius: radius.md,
-    backgroundColor: colors.infoSurface,
+    padding: 10,
+    gap: 10,
     borderWidth: 1,
-    borderColor: colors.infoBorder,
+    borderColor: colors.border
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  itemThumbWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden'
+  },
+  itemThumb: {
+    width: '100%',
+    height: '100%'
+  },
+  itemInfo: {
+    flex: 1,
+    gap: 2
+  },
+  itemName: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  itemCategory: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600'
+  },
+  itemQtyPrice: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontWeight: '700'
+  },
+  itemSubtotal: {
+    color: colors.text,
+    fontSize: 13.5,
+    fontWeight: '900'
+  },
+  addressBlock: {
+    backgroundColor: colors.infoSurface,
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.infoBorder,
+    gap: 4
+  },
+  addressTitleRow: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
-    gap: 8
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2
+  },
+  addressTitle: {
+    color: colors.primary,
+    fontSize: 12.5,
+    fontWeight: '900'
+  },
+  addressRecipient: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  addressPhone: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  addressBody: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17
+  },
+  addressNotes: {
+    color: '#854D0E',
+    fontSize: 11.5,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    marginTop: 2
+  },
+  priceBreakdown: {
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.md,
+    padding: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  priceLabel: {
+    color: colors.textSecondary,
+    fontSize: 12.5,
+    fontWeight: '600'
+  },
+  priceVal: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700'
+  },
+  freeDeliveryText: {
+    color: colors.success,
+    fontWeight: '900'
+  },
+  discountVal: {
+    color: colors.success,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 6,
+    marginTop: 2
+  },
+  totalLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900'
+  },
+  totalVal: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900'
+  },
+  actionsColumn: {
+    gap: 8,
+    marginTop: 4
+  },
+  detailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10
   },
   detailsText: {
-    color: colors.primaryPressed,
-    fontSize: 13.5,
+    flex: 1,
+    color: colors.primary,
+    fontSize: 13,
     fontWeight: '800',
-    flex: 1
+    marginLeft: 8
   }
 });
