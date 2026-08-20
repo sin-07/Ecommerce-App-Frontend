@@ -574,10 +574,8 @@ export const SellerDashboardScreen: React.FC<Props> = ({ navigation, route }) =>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.drawerItem, styles.drawerLogout]}
-              onPress={async () => {
+              onPress={() => {
                 setDrawerOpen(false);
-                setLoggingOut(true);
-                await new Promise((resolve) => setTimeout(() => resolve(true), 1600));
                 dispatch(logout());
               }}
             >

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AdminDashboardSkeleton } from '../components/AdminDashboardSkeleton';
 import { AppButton } from '../components/AppButton';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
@@ -118,8 +119,19 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
     ]).start(() => setDrawerOpen(false));
   };
 
-  const loadData = useCallback(async () => {
-    setError('');
+  const isNavigatingRef = useRef(false);
+
+  const navigateSafely = useCallback((screenName: any, params?: any) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    navigation.navigate(screenName, params);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 400);
+  }, [navigation]);
+
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setError('');
     try {
       const [dashboardRes, usersRes, ordersRes] = await Promise.all([
         api.get('/admin/dashboard'),
@@ -132,8 +144,10 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
       setRecentOrders((ordersRes.data?.data || []).slice(0, 4));
     } catch (requestError: any) {
       const message = requestError?.response?.data?.message || 'Unable to load admin dashboard.';
-      setError(message);
-      toast.show(message, 'error');
+      if (!silent) {
+        setError(message);
+        toast.show(message, 'error');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -145,7 +159,9 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
   }, [loadData]);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', loadData);
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadData(true);
+    });
     return unsubscribe;
   }, [loadData, navigation]);
 
@@ -156,7 +172,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
         targetUser.isActive ? 'User account access paused.' : 'User account access restored.',
         'success'
       );
-      await loadData();
+      await loadData(true);
     } catch (requestError: any) {
       toast.show(requestError?.response?.data?.message || 'Unable to update user status.', 'error');
     }
@@ -194,7 +210,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
         <TouchableOpacity
           accessibilityLabel="Review Orders"
           style={styles.notifButton}
-          onPress={() => navigation.navigate('Orders')}
+          onPress={() => navigateSafely('Orders')}
         >
           <MaterialCommunityIcons name="bell-outline" size={21} color={colors.navy} />
           {pendingOrdersCount > 0 && <View style={styles.notifDot} />}
@@ -202,10 +218,12 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       {/* BODY CONTENT */}
-      {error && !dashboard ? (
+      {loading && !dashboard ? (
+        <AdminDashboardSkeleton />
+      ) : error && !dashboard ? (
         <View style={styles.errorWrap}>
           <ErrorView message={error} />
-          <AppButton title="Retry" icon="refresh" variant="secondary" onPress={loadData} />
+          <AppButton title="Retry" icon="refresh" variant="secondary" onPress={() => loadData(false)} />
         </View>
       ) : (
         <ScrollView
@@ -215,7 +233,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                loadData();
+                loadData(false);
               }}
               tintColor={colors.primary}
             />
@@ -299,7 +317,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.actionsRow}>
               <TouchableOpacity
                 style={[styles.actionPill, styles.actionPillPrimary]}
-                onPress={() => navigation.navigate('AddProduct')}
+                onPress={() => navigateSafely('AddProduct')}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons name="plus" size={17} color={colors.white} />
@@ -308,7 +326,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
 
               <TouchableOpacity
                 style={styles.actionPill}
-                onPress={() => navigation.navigate('AdminProducts')}
+                onPress={() => navigateSafely('AdminProducts')}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons name="tune-variant" size={17} color={colors.primary} />
@@ -317,7 +335,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
 
               <TouchableOpacity
                 style={styles.actionPill}
-                onPress={() => navigation.navigate('Orders')}
+                onPress={() => navigateSafely('Orders')}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons name="truck-delivery-outline" size={17} color={colors.primary} />
@@ -513,10 +531,8 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
             {/* DRAWER LOGOUT */}
             <TouchableOpacity
               style={styles.drawerLogoutButton}
-              onPress={async () => {
+              onPress={() => {
                 closeDrawer();
-                setSigningOut(true);
-                await new Promise((resolve) => setTimeout(() => resolve(true), 1600));
                 dispatch(logout());
               }}
             >

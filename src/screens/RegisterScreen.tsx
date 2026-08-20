@@ -252,7 +252,6 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
 
     submitLock.current = true;
     setSubmitting(true);
-    const start = Date.now();
 
     try {
       await dispatch(
@@ -266,16 +265,8 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           otp
         })
       ).unwrap();
-      const elapsed = Date.now() - start;
-      if (elapsed < 1600) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1600 - elapsed));
-      }
       toast.show('Wholesale account created successfully! ✓', 'success', 'Welcome!');
     } catch (registrationError: any) {
-      const elapsed = Date.now() - start;
-      if (elapsed < 1200) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1200 - elapsed));
-      }
       const message = String(registrationError || 'Something went wrong. Please try again.');
       setError(message);
       toast.show(message, 'error');

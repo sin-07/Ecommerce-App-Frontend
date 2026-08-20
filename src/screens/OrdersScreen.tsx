@@ -6,6 +6,8 @@ import {
   LayoutAnimation,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,6 +17,7 @@ import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { EmptyState, ErrorView, LoadingView } from '../components/StateViews';
+import { OrderCardSkeleton } from '../components/OrderCardSkeleton';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
 import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
@@ -185,30 +188,11 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        {header}
-        <LoadingView label="Loading wholesale orders..." />
-      </SafeAreaView>
-    );
-  }
-
-  if (error) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        {header}
-        <ErrorView
-          message={error}
-          onRetry={() => {
-            if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
-            if (user?.role === 'seller') dispatch(fetchSellerOrders());
-            if (user?.role === 'admin') dispatch(fetchAdminOrders());
-          }}
-        />
-      </SafeAreaView>
-    );
-  }
+  const onRefresh = () => {
+    if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
+    if (user?.role === 'seller') dispatch(fetchSellerOrders());
+    if (user?.role === 'admin') dispatch(fetchAdminOrders());
+  };
 
   const isAdminOrSeller = user?.role === 'admin' || user?.role === 'seller';
 
@@ -216,7 +200,21 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {header}
 
-      {!items.length ? (
+      {loading && !items.length ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 20) }]}
+        >
+          <OrderCardSkeleton />
+          <OrderCardSkeleton />
+          <OrderCardSkeleton />
+        </ScrollView>
+      ) : error && !items.length ? (
+        <ErrorView
+          message={error}
+          onRetry={onRefresh}
+        />
+      ) : !items.length ? (
         <View style={styles.emptyWrap}>
           <EmptyState
             icon="package-variant-closed"
@@ -234,6 +232,13 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
         <FlatList
           data={items}
           keyExtractor={(item) => item._id}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          }
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 20) }]}
           renderItem={({ item }) => {
             const tone = statusTone(item.status);

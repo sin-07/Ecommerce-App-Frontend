@@ -67,19 +67,10 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     setSigningIn(true);
-    const start = Date.now();
     try {
       await dispatch(login({ email: cleanEmail, password: cleanPassword })).unwrap();
-      const elapsed = Date.now() - start;
-      if (elapsed < 1600) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1600 - elapsed));
-      }
       toast.show('Welcome to AP Enterprises! ✓', 'success', 'Signed In');
     } catch (err: any) {
-      const elapsed = Date.now() - start;
-      if (elapsed < 1200) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1200 - elapsed));
-      }
       const msg = typeof err === 'string' ? err : err?.message || 'Login failed. Please verify your credentials.';
       setValidationError(msg);
       toast.show(msg, 'error');
