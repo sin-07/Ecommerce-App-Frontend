@@ -20,6 +20,7 @@ export type PromoSlide = {
   title: string;
   subtitle: string;
   tag: string;
+  buttonLabel?: string;
   bg: string;
   accent: string;
   category?: string;
@@ -30,29 +31,43 @@ export const DEFAULT_PROMO_SLIDES: PromoSlide[] = [
   {
     id: 'bev',
     title: 'Chilled Beverages Wholesale',
-    subtitle: 'Coca-Cola, Pepsi, Sprite, Red Bull in Bulk Crates & Cans',
+    subtitle: 'Coca-Cola, Pepsi, Sprite, Red Bull and more',
     tag: 'DIRECT FACTORY SUPPLY',
-    bg: '#0F172A',
+    buttonLabel: 'Explore Beverages',
+    bg: '#0B1220',
     accent: '#38BDF8',
     category: 'Beverages',
-    icon: 'bottle-soda-classic-outline'
+    icon: 'cup-water'
   },
   {
     id: 'egg',
-    title: 'Daily Fresh Farm Eggs',
-    subtitle: 'Grade-A Table Eggs, Country Brown Eggs in Trays of 30',
+    title: 'Fresh Farm Eggs',
+    subtitle: 'Grade-A eggs in trays and bulk packs',
     tag: '100% FARM FRESH',
-    bg: '#451A03',
-    accent: '#FBBF24',
+    buttonLabel: 'Explore Eggs',
+    bg: '#1C1308',
+    accent: '#F59E0B',
     category: 'Eggs',
     icon: 'egg-outline'
   },
   {
+    id: 'wholesale',
+    title: 'Bulk Supplies for Businesses',
+    subtitle: 'Commercial wholesale products at competitive pricing',
+    tag: 'B2B WHOLESALE',
+    buttonLabel: 'Explore Wholesale',
+    bg: '#0F172A',
+    accent: '#818CF8',
+    category: 'Existing Products',
+    icon: 'cube-outline'
+  },
+  {
     id: 'fast',
     title: 'Same-Day Bulk Dispatch',
-    subtitle: 'Free B2B Wholesale Delivery on Qualified Commercial Orders',
+    subtitle: 'Fast fulfillment for eligible wholesale orders',
     tag: 'EXPRESS LOGISTICS',
-    bg: '#064E3B',
+    buttonLabel: 'Explore Supply',
+    bg: '#062E25',
     accent: '#34D399',
     category: '',
     icon: 'truck-fast-outline'
@@ -234,7 +249,7 @@ const PromoBannerCarouselBase: React.FC<Props> = ({
               </Text>
 
               <View style={[styles.heroShopBtn, { backgroundColor: item.accent }]}>
-                <Text style={styles.heroShopText}>Explore Supply</Text>
+                <Text style={styles.heroShopText}>{item.buttonLabel || 'Explore Supply'}</Text>
                 <Ionicons name="arrow-forward" size={13} color="#0F172A" />
               </View>
             </Animated.View>

@@ -23,6 +23,7 @@ import {
 
 const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { api } from '../constants/api';
 import { AuthPromptAction, AuthPromptModal } from '../components/AuthPromptModal';
 import { ProductCard } from '../components/ProductCard';
 import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
@@ -30,6 +31,9 @@ import { BeverageLoader } from '../components/BeverageLoader';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
 import { EmptyState, ErrorView } from '../components/StateViews';
 import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
+import { QuickCategoryCards } from '../components/QuickCategoryCards';
+import { HorizontalProductSection } from '../components/HorizontalProductSection';
+import { WhyChooseUsSection } from '../components/WhyChooseUsSection';
 import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
@@ -90,7 +94,9 @@ AnimatedProductCell.displayName = 'AnimatedProductCell';
 export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
-  const { items, loading, loadingMore, error, page, totalPages } = useAppSelector((state) => state.products);
+  const { items, loading, loadingMore, error, page, totalPages, categories: backendCategories } = useAppSelector(
+    (state) => state.products
+  );
   const { user } = useAppSelector((state) => state.auth);
   const { items: cartItems } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
@@ -102,6 +108,47 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
+
+  const getCategoryCount = useCallback(
+    (catId: string) => {
+      if (!catId) {
+        return backendCategories.reduce((sum, c) => sum + (c.count || 0), 0);
+      }
+      const match = backendCategories.find((c) => c.name.toLowerCase() === catId.toLowerCase());
+      return match ? match.count : null;
+    },
+    [backendCategories]
+  );
+
+  // Curated Home Sections (Featured, Bestsellers, New Arrivals)
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
+  const [bestsellerProducts, setBestsellerProducts] = useState<Product[]>([]);
+  const [newArrivals, setNewArrivals] = useState<Product[]>([]);
+  const [loadingCurated, setLoadingCurated] = useState(false);
+
+  const fetchCuratedSections = useCallback(async () => {
+    setLoadingCurated(true);
+    try {
+      const [featRes, bestRes, newRes] = await Promise.all([
+        api.get('/products', { params: { isFeatured: true, limit: 8 } }),
+        api.get('/products', { params: { isBestSeller: true, limit: 8 } }),
+        api.get('/products', { params: { sortBy: 'newest', limit: 8 } })
+      ]);
+      if (featRes.data?.data) {
+        setFeaturedProducts(featRes.data.data);
+      }
+      if (bestRes.data?.data) {
+        setBestsellerProducts(bestRes.data.data);
+      }
+      if (newRes.data?.data) {
+        setNewArrivals(newRes.data.data);
+      }
+    } catch (err) {
+      // Graceful fallback
+    } finally {
+      setLoadingCurated(false);
+    }
+  }, []);
 
   // Auth Prompt Modal State for Guest Users
   const [authModalVisible, setAuthModalVisible] = useState(false);
@@ -239,10 +286,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   // Initial load
   useEffect(() => {
     executeProductFetch(category, search, selectedFilter, 1);
+    fetchCuratedSections();
     dispatch(fetchCategories());
-    dispatch(fetchCart());
-    dispatch(loadWishlist());
-  }, [dispatch]);
+    if (user) {
+      dispatch(fetchCart());
+      dispatch(loadWishlist());
+    }
+  }, [dispatch, user]);
 
   // Smooth "Lazy" Drawer Open Animation
   const openDrawer = useCallback(() => {
@@ -325,10 +375,9 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             closeDrawer();
           } else {
             Animated.parallel([
-              Animated.spring(drawerAnim, {
+              Animated.timing(drawerAnim, {
                 toValue: 0,
-                friction: 6,
-                tension: 40,
+                duration: 180,
                 useNativeDriver: true
               }),
               Animated.timing(overlayAnim, {
@@ -372,11 +421,15 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     setIsRefreshing(true);
     // Invalidate cache on manual pull-to-refresh
     categoryCacheRef.current = {};
-    await executeProductFetch(category, search, selectedFilter, 1, true);
-    await dispatch(fetchCart());
-    await dispatch(loadWishlist());
+    await Promise.all([
+      executeProductFetch(category, search, selectedFilter, 1, true),
+      fetchCuratedSections(),
+      dispatch(fetchCategories()),
+      user ? dispatch(fetchCart()) : Promise.resolve(),
+      user ? dispatch(loadWishlist()) : Promise.resolve()
+    ]);
     setIsRefreshing(false);
-  }, [category, search, selectedFilter, executeProductFetch, dispatch]);
+  }, [category, search, selectedFilter, executeProductFetch, fetchCuratedSections, dispatch, user]);
 
   const loadNextPage = useCallback(() => {
     if (loadingMore || page >= totalPages) return;
@@ -419,7 +472,21 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const incrementProduct = useCallback(
     async (productId: string, minOrderQuantity: number) => {
-      const target = items.find((item) => item._id === productId);
+      const target =
+        items.find((item) => item._id === productId) ||
+        featuredProducts.find((p) => p._id === productId) ||
+        bestsellerProducts.find((p) => p._id === productId) ||
+        newArrivals.find((p) => p._id === productId);
+
+      if (!user) {
+        if (target) {
+          triggerAuthPrompt('cart', target, minOrderQuantity);
+        } else {
+          triggerAuthPrompt('cart');
+        }
+        return;
+      }
+
       if (target && target.stock <= 0) {
         toast.error('This product is currently out of stock.');
         return;
@@ -438,11 +505,15 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         toast.error(cartError || 'Failed to update cart');
       }
     },
-    [dispatch, items, getCartQuantityForProduct]
+    [dispatch, items, featuredProducts, bestsellerProducts, newArrivals, getCartQuantityForProduct, user, triggerAuthPrompt]
   );
 
   const decrementProduct = useCallback(
     async (productId: string) => {
+      if (!user) {
+        triggerAuthPrompt('cart');
+        return;
+      }
       const current = getCartQuantityForProduct(productId);
       if (current <= 0) return;
       try {
@@ -591,45 +662,157 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           </View>
         </View>
 
-        {/* HERO / PROMO BANNER CAROUSEL (REMAINS 100% STABLE & MOUNTED) */}
-        {!search && (
-          <PromoBannerCarousel onSelectCategory={handleSelectCategory} />
+        {/* DEFAULT HOME SECTIONS (HERO, SPOTLIGHTS, FEATURED, BESTSELLERS, NEW ARRIVALS, VALUE PROPS) */}
+        {!search && !category && selectedFilter === 'all' ? (
+          <>
+            {/* HERO / PROMO BANNER CAROUSEL */}
+            <PromoBannerCarousel onSelectCategory={handleSelectCategory} />
+
+            {/* CATEGORY TABS WITH LIVE PRODUCT COUNTS */}
+            <View style={styles.categorySection}>
+              <View style={styles.categorySectionHeader}>
+                <Text style={styles.sectionHeading}>Product Categories</Text>
+                <Text style={styles.sectionHeadingSub}>Factory direct supply chains</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+                {CATEGORIES.map((cat) => {
+                  const isSelected = category === cat.id;
+                  const isThisCategoryLoading = isSelected && isCategoryLoading;
+                  const count = getCategoryCount(cat.id);
+
+                  return (
+                    <TouchableOpacity
+                      key={cat.id || 'all'}
+                      activeOpacity={0.8}
+                      onPress={() => handleSelectCategory(cat.id)}
+                      style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
+                    >
+                      {isThisCategoryLoading ? (
+                        <View style={styles.tabLoader}>
+                          <ActivityIndicator size="small" color={colors.white} />
+                        </View>
+                      ) : (
+                        <MaterialCommunityIcons
+                          name={cat.icon as any}
+                          size={18}
+                          color={isSelected ? colors.white : colors.primary}
+                        />
+                      )}
+                      <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
+                        {cat.label}
+                      </Text>
+                      {count != null && count > 0 ? (
+                        <View style={[styles.categoryCountBadge, isSelected && styles.categoryCountBadgeActive]}>
+                          <Text style={[styles.categoryCountText, isSelected && styles.categoryCountTextActive]}>
+                            {count}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* QUICK CATEGORY SPOTLIGHT CARDS */}
+            <QuickCategoryCards onSelectCategory={handleSelectCategory} activeCategory={category} />
+
+            {/* FEATURED WHOLESALE PRODUCTS */}
+            <HorizontalProductSection
+              title="Featured Wholesale"
+              subtitle="Hand-picked commercial products with volume pricing"
+              badgeLabel="HOT"
+              badgeTone={{ text: '#D97706', bg: '#FEF3C7', border: '#FDE68A' }}
+              icon="star-outline"
+              items={featuredProducts}
+              loading={loadingCurated}
+              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+              onDecrementCart={(p) => decrementProduct(p._id)}
+              getCartQuantity={getCartQuantityForProduct}
+              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
+              onSeeAll={() => handleSelectFilter('featured')}
+            />
+
+            {/* BESTSELLERS SECTION */}
+            <HorizontalProductSection
+              title="Bestsellers"
+              subtitle="Top-reordered wholesale items across businesses"
+              badgeLabel="POPULAR"
+              badgeTone={{ text: '#0284C7', bg: '#E0F2FE', border: '#BAE6FD' }}
+              icon="trending-up"
+              items={bestsellerProducts}
+              loading={loadingCurated}
+              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+              onDecrementCart={(p) => decrementProduct(p._id)}
+              getCartQuantity={getCartQuantityForProduct}
+              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
+              onSeeAll={() => handleSelectFilter('bestseller')}
+            />
+
+            {/* NEW ARRIVALS SECTION */}
+            <HorizontalProductSection
+              title="New Arrivals"
+              subtitle="Recently added inventory to AP Enterprises catalog"
+              badgeLabel="NEW"
+              badgeTone={{ text: '#10B981', bg: '#ECFDF5', border: '#A7F3D0' }}
+              icon="clock-outline"
+              items={newArrivals}
+              loading={loadingCurated}
+              onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+              onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+              onDecrementCart={(p) => decrementProduct(p._id)}
+              getCartQuantity={getCartQuantityForProduct}
+              onRequireAuth={(action, p, qty) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)}
+            />
+
+            {/* WHY AP ENTERPRISES VALUE PROPOSITIONS */}
+            <WhyChooseUsSection />
+          </>
+        ) : (
+          /* FILTERED / SEARCH VIEW CATEGORY TABS */
+          <View style={styles.categorySection}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+              {CATEGORIES.map((cat) => {
+                const isSelected = category === cat.id;
+                const isThisCategoryLoading = isSelected && isCategoryLoading;
+                const count = getCategoryCount(cat.id);
+
+                return (
+                  <TouchableOpacity
+                    key={cat.id || 'all'}
+                    activeOpacity={0.8}
+                    onPress={() => handleSelectCategory(cat.id)}
+                    style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
+                  >
+                    {isThisCategoryLoading ? (
+                      <View style={styles.tabLoader}>
+                        <ActivityIndicator size="small" color={colors.white} />
+                      </View>
+                    ) : (
+                      <MaterialCommunityIcons
+                        name={cat.icon as any}
+                        size={18}
+                        color={isSelected ? colors.white : colors.primary}
+                      />
+                    )}
+                    <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
+                      {cat.label}
+                    </Text>
+                    {count != null && count > 0 ? (
+                      <View style={[styles.categoryCountBadge, isSelected && styles.categoryCountBadgeActive]}>
+                        <Text style={[styles.categoryCountText, isSelected && styles.categoryCountTextActive]}>
+                          {count}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         )}
-
-        {/* CATEGORY TABS */}
-        <View style={styles.categorySection}>
-          <Text style={styles.sectionHeading}>Product Categories</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-            {CATEGORIES.map((cat) => {
-              const isSelected = category === cat.id;
-              const isThisCategoryLoading = isSelected && isCategoryLoading;
-
-              return (
-                <TouchableOpacity
-                  key={cat.id || 'all'}
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectCategory(cat.id)}
-                  style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
-                >
-                  {isThisCategoryLoading ? (
-                    <View style={styles.tabLoader}>
-                      <ActivityIndicator size="small" color={colors.white} />
-                    </View>
-                  ) : (
-                    <MaterialCommunityIcons
-                      name={cat.icon as any}
-                      size={18}
-                      color={isSelected ? colors.white : colors.primary}
-                    />
-                  )}
-                  <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
-                    {cat.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
 
         {/* FILTER CHIPS */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipScroll}>
@@ -696,7 +879,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         {/* PRODUCTS SECTION TITLE */}
         <View style={styles.catalogHeadingRow}>
           <Text style={styles.catalogHeading}>
-            {category ? `${category} Catalog` : 'Wholesale Catalog'}
+            {search
+              ? `Results for "${search}"`
+              : category
+              ? `${category} Catalog`
+              : selectedFilter !== 'all'
+              ? `${selectedFilter.toUpperCase()} Products`
+              : 'All Wholesale Products'}
           </Text>
           <Text style={styles.catalogCount}>
             {isCategoryLoading ? 'Loading products…' : `${items.length} item${items.length === 1 ? '' : 's'} available`}
@@ -713,11 +902,22 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       isCategoryLoading,
       items.length,
       drawerOpen,
+      featuredProducts,
+      bestsellerProducts,
+      newArrivals,
+      loadingCurated,
+      backendCategories,
+      getCategoryCount,
+      getCartQuantityForProduct,
+      incrementProduct,
+      decrementProduct,
+      triggerAuthPrompt,
       handleSelectCategory,
       handleSelectFilter,
       executeProductFetch,
       openDrawer,
-      closeDrawer
+      closeDrawer,
+      navigation
     ]
   );
 
@@ -1200,11 +1400,19 @@ const styles = StyleSheet.create({
   categorySection: {
     marginBottom: 10
   },
+  categorySectionHeader: {
+    marginBottom: 8,
+    gap: 2
+  },
   sectionHeading: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
     color: colors.navy,
-    marginBottom: 8
+    letterSpacing: -0.2
+  },
+  sectionHeadingSub: {
+    fontSize: 11.5,
+    color: colors.textSecondary
   },
   categoryScroll: {
     gap: 8
@@ -1214,8 +1422,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     minHeight: 38,
     borderRadius: radius.pill,
     backgroundColor: colors.card,
@@ -1240,6 +1448,26 @@ const styles = StyleSheet.create({
     color: colors.text
   },
   categoryTabTextActive: {
+    color: colors.white
+  },
+  categoryCountBadge: {
+    backgroundColor: colors.bg,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  categoryCountBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.4)'
+  },
+  categoryCountText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textSecondary
+  },
+  categoryCountTextActive: {
     color: colors.white
   },
   filterChipScroll: {

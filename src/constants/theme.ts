@@ -23,7 +23,17 @@ export const colors = {
   warningSurface: '#FFFBEB',
   warningBorder: '#FDE68A',
   dangerSurface: '#FEF2F2',
-  dangerBorder: '#FECACA'
+  dangerBorder: '#FECACA',
+  darkHero: '#0B1220',
+  eggAccent: '#D97706',
+  eggSurface: '#FEF3C7',
+  eggBorder: '#FDE68A',
+  bevAccent: '#0284C7',
+  bevSurface: '#E0F2FE',
+  bevBorder: '#BAE6FD',
+  wholesaleAccent: '#475569',
+  wholesaleSurface: '#F1F5F9',
+  wholesaleBorder: '#E2E8F0'
 };
 
 export const spacing = {
