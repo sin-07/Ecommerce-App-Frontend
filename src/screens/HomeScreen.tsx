@@ -28,13 +28,18 @@ import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
 import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
 import { WholesaleCTACard } from '../components/WholesaleCTACard';
 import { WhyChooseUsSection } from '../components/WhyChooseUsSection';
+import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
-import { Product } from '../constants/types';
+import { BuyAgainProduct, PersonalizedRecommendationsResponse, Product } from '../constants/types';
+import { useNetwork } from '../contexts/NetworkContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { logout, setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
+import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 const logoSource = require('../../assets/Ap-Enterprises.jpeg');
@@ -46,6 +51,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
+  const { colors, isDark, themeMode, setThemeMode } = useTheme();
+  const { isOnline, setHasCachedData } = useNetwork();
   const { user } = useAppSelector((state) => state.auth);
   const { items: cartItems } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
@@ -62,6 +69,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [wholesaleProducts, setWholesaleProducts] = useState<Product[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [popularProducts, setPopularProducts] = useState<Product[]>([]);
+  const [buyAgainProducts, setBuyAgainProducts] = useState<BuyAgainProduct[]>([]);
+  const [recommendations, setRecommendations] = useState<PersonalizedRecommendationsResponse | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [buyAgainLoadingId, setBuyAgainLoadingId] = useState<string | null>(null);
 
   // Auth Prompt Modal State for Guest Users
   const [authModalVisible, setAuthModalVisible] = useState(false);
@@ -118,15 +129,16 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     navigation.navigate('Register');
   }, [dispatch, authModalProduct, authModalAction, authModalQuantity, navigation]);
 
-  // Fetch Storefront Curated Sections
+  // Fetch Storefront Curated Sections & Real Buyer History & Recommendations
   const fetchStorefrontData = useCallback(async () => {
     try {
-      const [eggRes, bevRes, wholeRes, featRes, popRes] = await Promise.all([
+      const [eggRes, bevRes, wholeRes, featRes, popRes, recRes] = await Promise.all([
         api.get('/products', { params: { category: 'Eggs', limit: 4 } }),
         api.get('/products', { params: { category: 'Beverages', limit: 4 } }),
         api.get('/products', { params: { category: 'Existing Products', limit: 4 } }),
         api.get('/products', { params: { isFeatured: true, limit: 4 } }),
-        api.get('/products', { params: { isBestSeller: true, limit: 4 } })
+        api.get('/products', { params: { isBestSeller: true, limit: 4 } }),
+        api.get('/products/recommendations/personalized').catch(() => ({ data: { data: null } }))
       ]);
 
       if (eggRes.data?.data) setEggProducts(eggRes.data.data);
@@ -134,12 +146,27 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       if (wholeRes.data?.data) setWholesaleProducts(wholeRes.data.data);
       if (featRes.data?.data) setFeaturedProducts(featRes.data.data);
       if (popRes.data?.data) setPopularProducts(popRes.data.data);
+      if (recRes?.data?.data) setRecommendations(recRes.data.data);
+
+      setHasCachedData(Boolean(
+        eggRes.data?.data?.length || bevRes.data?.data?.length || featRes.data?.data?.length
+      ));
+
+      if (user) {
+        api.get('/orders/buyer/buy-again').then((res) => {
+          if (res.data?.data) setBuyAgainProducts(res.data.data);
+        }).catch(() => {});
+
+        api.get('/notifications/unread-count').then((res) => {
+          if (res.data?.data?.unreadCount !== undefined) setUnreadCount(res.data.data.unreadCount);
+        }).catch(() => {});
+      }
     } catch {
       // Graceful fallback
     } finally {
       setLoadingStorefront(false);
     }
-  }, []);
+  }, [user, setHasCachedData]);
 
   // Initial load
   useEffect(() => {
@@ -151,14 +178,20 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   }, [dispatch, user, fetchStorefrontData]);
 
   const onRefresh = useCallback(async () => {
+    if (isRefreshing) return;
     setIsRefreshing(true);
-    await Promise.all([
-      fetchStorefrontData(),
-      user ? dispatch(fetchCart()) : Promise.resolve(),
-      user ? dispatch(loadWishlist()) : Promise.resolve()
-    ]);
-    setIsRefreshing(false);
-  }, [fetchStorefrontData, dispatch, user]);
+    try {
+      await Promise.all([
+        fetchStorefrontData(),
+        user ? dispatch(fetchCart()) : Promise.resolve(),
+        user ? dispatch(loadWishlist()) : Promise.resolve()
+      ]);
+    } catch {
+      toast.error('Could not refresh data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, fetchStorefrontData, dispatch, user]);
 
   // Smooth "Lazy" Drawer Open Animation
   const openDrawer = useCallback(() => {
@@ -324,6 +357,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       const target = allKnownProducts.get(productId);
 
       if (!user) {
+        haptics.lightImpact();
         if (target) {
           triggerAuthPrompt('cart', target, minOrderQuantity);
         } else {
@@ -333,9 +367,11 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       if (target && target.stock <= 0) {
+        haptics.errorNotification();
         toast.error('This product is currently out of stock.');
         return;
       }
+      haptics.mediumImpact();
       const current = getCartQuantityForProduct(productId);
       try {
         if (current <= 0) {
@@ -347,6 +383,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           toast.success('Cart updated.');
         }
       } catch (cartError: any) {
+        haptics.errorNotification();
         toast.error(cartError || 'Failed to update cart');
       }
     },
@@ -356,9 +393,11 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const decrementProduct = useCallback(
     async (productId: string) => {
       if (!user) {
+        haptics.lightImpact();
         triggerAuthPrompt('cart');
         return;
       }
+      haptics.selection();
       const current = getCartQuantityForProduct(productId);
       if (current <= 0) return;
       try {
@@ -374,6 +413,42 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       }
     },
     [dispatch, getCartQuantityForProduct, user, triggerAuthPrompt]
+  );
+
+  const handleBuyAgain = useCallback(
+    async (item: BuyAgainProduct) => {
+      if (!user) {
+        haptics.lightImpact();
+        triggerAuthPrompt('cart', item, item.previousQuantity);
+        return;
+      }
+
+      if (item.stock <= 0) {
+        haptics.errorNotification();
+        toast.error('Product is no longer available.');
+        return;
+      }
+
+      const moq = Math.max(1, item.minOrderQuantity || 1);
+      const targetQty = Math.max(moq, Math.min(item.previousQuantity || 1, item.stock));
+
+      if (item.previousQuantity > item.stock) {
+        toast.info(`Only ${item.stock} ${item.unit || 'unit'}(s) currently available.`);
+      }
+
+      haptics.mediumImpact();
+      setBuyAgainLoadingId(item._id);
+      try {
+        await dispatch(addCartItem({ productId: item._id, quantity: targetQty })).unwrap();
+        toast.success(`Reordered ${targetQty} ${item.unit || 'unit'}(s) of ${item.name}!`);
+      } catch (err: any) {
+        haptics.errorNotification();
+        toast.error(err || 'Failed to reorder product');
+      } finally {
+        setBuyAgainLoadingId(null);
+      }
+    },
+    [dispatch, user, triggerAuthPrompt]
   );
 
   const handleSearchSubmit = useCallback(() => {
@@ -429,6 +504,22 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           <View style={styles.topActionBtns}>
+            {user ? (
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => navigation.navigate('Notifications')}
+                hitSlop={6}
+                accessibilityLabel="Open notifications"
+              >
+                <Ionicons name="notifications-outline" size={21} color={colors.text} />
+                {unreadCount > 0 && (
+                  <View style={styles.iconBadge}>
+                    <Text style={styles.iconBadgeText}>{unreadCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ) : null}
+
             {user ? (
               <TouchableOpacity
                 style={styles.iconButton}
@@ -492,20 +583,129 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
         {/* 3. PREMIUM HERO CAROUSEL */}
         <PromoBannerCarousel onSelectCategory={handleNavigateToCategory} />
 
-        {/* 4. SHOP BY CATEGORY (3 LARGE CARDS) */}
+        {/* 4. SMART "BUY AGAIN" / REORDER SECTION (Only for buyers with real purchase history) */}
+        {user && buyAgainProducts.length > 0 ? (
+          <View style={styles.buyAgainSection}>
+            <View style={styles.buyAgainHeaderRow}>
+              <View style={styles.buyAgainHeaderLeft}>
+                <View style={styles.buyAgainIconCircle}>
+                  <MaterialCommunityIcons name="refresh" size={18} color="#9333EA" />
+                </View>
+                <View>
+                  <Text style={styles.buyAgainSectionTitle}>Buy Again</Text>
+                  <Text style={styles.buyAgainSectionSubtitle}>Quickly reorder your regular supplies</Text>
+                </View>
+              </View>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.buyAgainScroll}>
+              {buyAgainProducts.map((item) => {
+                const isOutOfStock = item.stock <= 0;
+                const isLowStock = item.stock > 0 && item.stock <= 10;
+                const rawUrl = item.imageUrl ? String(item.imageUrl).trim() : '';
+                const imageUri = rawUrl.startsWith('http')
+                  ? rawUrl
+                  : rawUrl
+                  ? `${API_BASE_URL.replace('/api', '')}${rawUrl}`
+                  : '';
+                const isPending = buyAgainLoadingId === item._id;
+
+                return (
+                  <View key={`buy-again-${item._id}`} style={styles.buyAgainCard}>
+                    <Pressable
+                      onPress={() => navigation.navigate('ProductDetails', { productId: item._id, product: item })}
+                      style={styles.buyAgainImgWrap}
+                    >
+                      {imageUri ? (
+                        <Image source={{ uri: imageUri }} style={styles.buyAgainImg} resizeMode="cover" />
+                      ) : (
+                        <View style={styles.buyAgainImgFallback}>
+                          <MaterialCommunityIcons
+                            name={item.category?.toLowerCase().includes('egg') ? 'egg-outline' : 'cup-water'}
+                            size={30}
+                            color={colors.primary}
+                          />
+                        </View>
+                      )}
+                      <View style={styles.buyAgainOrderedPill}>
+                        <Text style={styles.buyAgainOrderedText}>
+                          Last: {item.previousQuantity} {item.unit || 'unit'}{item.previousQuantity > 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                    </Pressable>
+
+                    <View style={styles.buyAgainBody}>
+                      <Text style={styles.buyAgainName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <View style={styles.buyAgainPriceRow}>
+                        <Text style={styles.buyAgainPrice}>{formatINR(item.price)}</Text>
+                        <Text style={[styles.buyAgainStockText, isOutOfStock && styles.stockOutText]}>
+                          {isOutOfStock ? 'Out of stock' : isLowStock ? `Only ${item.stock} left` : 'In stock'}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.buyAgainBtn, (isOutOfStock || isPending) && styles.buyAgainBtnDisabled]}
+                        disabled={isOutOfStock || isPending}
+                        onPress={() => handleBuyAgain(item)}
+                        activeOpacity={0.88}
+                      >
+                        {isPending ? (
+                          <ActivityIndicator size="small" color={colors.white} />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <MaterialCommunityIcons name="refresh" size={14} color={colors.white} />
+                            <Text style={styles.buyAgainBtnText}>Buy Again</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* 5. SHOP BY CATEGORY (3 LARGE CARDS) */}
         <CategoryShopCards onSelectCategory={handleNavigateToCategory} />
 
-        {/* 5. CURATED BUSINESS SUPPLY PREVIEWS (2–4 ITEMS EACH) */}
+        {/* 6. SMART RECOMMENDATIONS — "Because you bought Eggs" or "Recommended for Your Business" */}
+        {recommendations && recommendations.products && recommendations.products.length > 0 ? (
+          <HorizontalProductSection
+            title={recommendations.title}
+            subtitle={
+              recommendations.reasonCategory && recommendations.reasonCategory !== 'General'
+                ? `Tailored supplies based on your ${recommendations.reasonCategory} orders`
+                : 'Top wholesale picks curated for your business'
+            }
+            badgeLabel="SMART MATCH"
+            badgeTone={{ text: '#7C3AED', bg: isDark ? '#2E1065' : '#F5F3FF', border: isDark ? '#6D28D9' : '#DDD6FE' }}
+            icon="star-shooting-outline"
+            items={recommendations.products}
+            onViewProduct={(p) => navigation.navigate('ProductDetails', { productId: p._id, product: p })}
+            onIncrementCart={(p) => incrementProduct(p._id, p.minOrderQuantity || 1)}
+            onDecrementCart={(p) => decrementProduct(p._id)}
+            getCartQuantity={getCartQuantityForProduct}
+            onRequireAuth={(action, p, qty) =>
+              triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', p, qty)
+            }
+            onSeeAll={handleNavigateToCatalog}
+          />
+        ) : null}
+
+        {/* 7. CURATED BUSINESS SUPPLY PREVIEWS (2–4 ITEMS EACH) */}
         {loadingStorefront ? (
           <View style={styles.loadingSkeletonSection}>
             <View style={styles.skeletonTitle} />
-            <View style={styles.skeletonRow}>
-              {[1, 2].map((i) => (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.skeletonRow}>
+              {[1, 2, 3].map((i) => (
                 <View key={i} style={styles.skeletonCardWrapper}>
                   <ProductCardSkeleton compact />
                 </View>
               ))}
-            </View>
+            </ScrollView>
           </View>
         ) : (
           <>
@@ -847,6 +1047,37 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                   onPress={() =>
                     closeDrawer(() => {
                       if (!user) triggerAuthPrompt('general');
+                      else navigation.navigate('Account');
+                    })
+                  }
+                >
+                  <MaterialCommunityIcons name="account-circle-outline" size={20} color={colors.primary} />
+                  <Text style={[styles.drawerNavText, { color: colors.primary, fontWeight: '800' }]}>Account & Dashboard</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() =>
+                    closeDrawer(() => {
+                      if (!user) triggerAuthPrompt('general');
+                      else navigation.navigate('Notifications');
+                    })
+                  }
+                >
+                  <Ionicons name="notifications-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Notification Center</Text>
+                  {unreadCount > 0 && (
+                    <View style={styles.drawerBadge}>
+                      <Text style={styles.drawerBadgeText}>{unreadCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() =>
+                    closeDrawer(() => {
+                      if (!user) triggerAuthPrompt('general');
                       else navigation.navigate('Orders');
                     })
                   }
@@ -919,6 +1150,38 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 </Animated.View>
               </>
             )}
+
+            <View style={styles.drawerDivider} />
+
+            {/* THEME PREFERENCE TOGGLE */}
+            <View style={styles.drawerNavGroup}>
+              <Text style={styles.drawerNavLabel}>APPEARANCE</Text>
+              <View style={styles.themeToggleRow}>
+                {(['system', 'light', 'dark'] as const).map((mode) => {
+                  const isSelected = themeMode === mode;
+                  return (
+                    <TouchableOpacity
+                      key={mode}
+                      style={[styles.themeOptionBtn, isSelected && styles.themeOptionBtnActive]}
+                      onPress={() => {
+                        haptics.selection();
+                        setThemeMode(mode);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={mode === 'system' ? 'phone-portrait-outline' : mode === 'light' ? 'sunny-outline' : 'moon-outline'}
+                        size={14}
+                        color={isSelected ? colors.primary : colors.textMuted}
+                      />
+                      <Text style={[styles.themeOptionText, isSelected && styles.themeOptionTextActive]}>
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
 
             <View style={styles.drawerDivider} />
 
@@ -1464,5 +1727,162 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
     color: colors.primary
+  },
+  buyAgainSection: {
+    marginVertical: 14,
+    gap: 12
+  },
+  buyAgainHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2
+  },
+  buyAgainHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  buyAgainIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FAF5FF',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  buyAgainSectionTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: colors.navy
+  },
+  buyAgainSectionSubtitle: {
+    fontSize: 11.5,
+    color: colors.textSecondary,
+    marginTop: 1
+  },
+  buyAgainScroll: {
+    gap: 12,
+    paddingVertical: 2
+  },
+  buyAgainCard: {
+    width: 190,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 10,
+    gap: 8,
+    ...shadows.card
+  },
+  buyAgainImgWrap: {
+    height: 110,
+    width: '100%',
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: colors.cardAlt
+  },
+  buyAgainImg: {
+    width: '100%',
+    height: '100%'
+  },
+  buyAgainImgFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.infoSurface
+  },
+  buyAgainOrderedPill: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.xs
+  },
+  buyAgainOrderedText: {
+    color: colors.white,
+    fontSize: 9,
+    fontWeight: '800'
+  },
+  buyAgainBody: {
+    gap: 6
+  },
+  buyAgainName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text
+  },
+  buyAgainPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  buyAgainPrice: {
+    fontSize: 14.5,
+    fontWeight: '900',
+    color: colors.navy
+  },
+  buyAgainStockText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.success
+  },
+  stockOutText: {
+    color: colors.danger
+  },
+  buyAgainBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4
+  },
+  buyAgainBtnDisabled: {
+    opacity: 0.5
+  },
+  buyAgainBtnText: {
+    color: colors.white,
+    fontSize: 11.5,
+    fontWeight: '800'
+  },
+  themeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4
+  },
+  themeOptionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  themeOptionBtnActive: {
+    backgroundColor: colors.infoSurface,
+    borderColor: colors.primary
+  },
+  themeOptionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMuted
+  },
+  themeOptionTextActive: {
+    color: colors.primary,
+    fontWeight: '800'
   }
 });

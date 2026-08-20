@@ -1,4 +1,4 @@
-export const colors = {
+export const lightColors = {
   bg: '#F8FAFC',
   card: '#FFFFFF',
   cardAlt: '#F1F5F9',
@@ -35,6 +35,48 @@ export const colors = {
   wholesaleSurface: '#F1F5F9',
   wholesaleBorder: '#E2E8F0'
 };
+
+export const darkColors: typeof lightColors = {
+  bg: '#0B1220',
+  card: '#111827',
+  cardAlt: '#1E293B',
+  navy: '#F8FAFC',
+  primary: '#3B82F6',
+  primaryPressed: '#2563EB',
+  primaryLight: '#1E293B',
+  accent: '#38BDF8',
+  citrus: '#FBBF24',
+  success: '#34D399',
+  text: '#F8FAFC',
+  textSecondary: '#94A3B8',
+  textMuted: '#64748B',
+  danger: '#F87171',
+  border: '#334155',
+  borderLight: '#1F2937',
+  white: '#FFFFFF',
+  infoSurface: '#1E293B',
+  infoBorder: '#3B82F6',
+  successSurface: '#064E3B',
+  successBorder: '#059669',
+  warningSurface: '#451A03',
+  warningBorder: '#92400E',
+  dangerSurface: '#450A0A',
+  dangerBorder: '#991B1B',
+  darkHero: '#0B1220',
+  eggAccent: '#F59E0B',
+  eggSurface: '#451A03',
+  eggBorder: '#92400E',
+  bevAccent: '#38BDF8',
+  bevSurface: '#0C4A6E',
+  bevBorder: '#0284C7',
+  wholesaleAccent: '#94A3B8',
+  wholesaleSurface: '#1E293B',
+  wholesaleBorder: '#334155'
+};
+
+export const colors = lightColors;
+
+export type ThemeColors = typeof lightColors;
 
 export const spacing = {
   x05: 4,
@@ -98,7 +140,7 @@ export const shadows = {
 } as const;
 
 export const animation = {
-  fast: 150,
-  normal: 250,
-  slow: 350
+  fast: 160,
+  normal: 240,
+  relaxed: 320
 } as const;

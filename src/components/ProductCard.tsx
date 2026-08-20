@@ -4,10 +4,12 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Product } from '../constants/types';
 import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
+import { useTheme } from '../contexts/ThemeContext';
 import { getStockLabel, getStockTone, getStockStatus } from '../utils/stock';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { toggleWishlist } from '../redux/slices/wishlistSlice';
 import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 export const CARD_IMAGE_HEIGHT = 125;
@@ -33,26 +35,26 @@ const getCategoryIcon = (category: string) => {
   return 'package-variant-closed';
 };
 
-const getCategoryBadgeTone = (category: string) => {
+const getCategoryBadgeTone = (category: string, isDark = false) => {
   const cat = String(category || '').toLowerCase();
   if (cat.includes('egg')) {
     return {
-      bg: '#FEF3C7',
-      text: '#92400E',
-      border: '#FDE68A'
+      bg: isDark ? '#451A03' : '#FEF3C7',
+      text: isDark ? '#F59E0B' : '#92400E',
+      border: isDark ? '#78350F' : '#FDE68A'
     };
   }
   if (cat.includes('bev') || cat.includes('drink') || cat.includes('soda') || cat.includes('juice')) {
     return {
-      bg: '#E0F2FE',
-      text: '#0369A1',
-      border: '#BAE6FD'
+      bg: isDark ? '#082F49' : '#E0F2FE',
+      text: isDark ? '#38BDF8' : '#0369A1',
+      border: isDark ? '#0369A1' : '#BAE6FD'
     };
   }
   return {
-    bg: '#F1F5F9',
-    text: '#475569',
-    border: '#E2E8F0'
+    bg: isDark ? '#1E293B' : '#F1F5F9',
+    text: isDark ? '#94A3B8' : '#475569',
+    border: isDark ? '#334155' : '#E2E8F0'
   };
 };
 
@@ -66,6 +68,7 @@ const ProductCardBase: React.FC<Props> = ({
   compact
 }) => {
   const dispatch = useAppDispatch();
+  const { colors, isDark } = useTheme();
   const user = useAppSelector((state) => state.auth.user);
   const wishlistItems = useAppSelector((state) => state.wishlist?.items || []);
   const isWishlisted = wishlistItems.some((item) => item._id === product._id);
@@ -89,13 +92,15 @@ const ProductCardBase: React.FC<Props> = ({
   const isOutOfStock = stockStatus === 'out_of_stock';
   const isLowStock = stockStatus === 'low_stock';
   const moq = Math.max(1, product.minOrderQuantity || 1);
-  const catTone = getCategoryBadgeTone(product.category);
+  const catTone = getCategoryBadgeTone(product.category, isDark);
 
   const handleToggleWishlist = () => {
     if (!user) {
+      haptics.lightImpact();
       if (onRequireAuth) onRequireAuth('wishlist', product);
       return;
     }
+    haptics.lightImpact();
     dispatch(toggleWishlist(product));
     if (isWishlisted) {
       toast.info(`Removed ${product.name} from wishlist`);

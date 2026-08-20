@@ -7,7 +7,8 @@ import { ProductForm, ProductFormPayload } from '../components/ProductForm';
 import { api, API_BASE_URL } from '../constants/api';
 import { colors, radius } from '../constants/theme';
 import { RootStackParamList } from '../navigation/types';
-import { useAppSelector } from '../hooks/reduxHooks';
+import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
+import { fetchCategories, fetchProducts } from '../redux/slices/productSlice';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddProduct'>;
@@ -24,6 +25,7 @@ const DEFAULT_CATEGORIES = [
 ];
 
 export const AddProductScreen: React.FC<Props> = ({ navigation, route }) => {
+  const dispatch = useAppDispatch();
   const product = route.params?.product;
   const { user } = useAppSelector((state) => state.auth);
   const [submitting, setSubmitting] = useState(false);
@@ -98,6 +100,14 @@ export const AddProductScreen: React.FC<Props> = ({ navigation, route }) => {
         await api.put(endpoint, form, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
         await api.post(endpoint, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+
+      // Invalidate and refresh Redux product state so all screens immediately show the updated image & data
+      try {
+        await dispatch(fetchProducts({ page: 1, limit: 16 })).unwrap();
+        await dispatch(fetchCategories()).unwrap();
+      } catch {
+        // Safe fallback
       }
 
       toast.success(isEditing ? 'Product updated successfully.' : 'Product added successfully.');

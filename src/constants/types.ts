@@ -7,6 +7,24 @@ export interface User {
   phone?: string;
   role: Role;
   companyName?: string;
+  isVerified?: boolean;
+}
+
+export interface PricingTier {
+  minQty: number;
+  maxQty?: number | null;
+  price: number;
+  discountPercentage?: number;
+}
+
+export interface ProductSpecification {
+  key: string;
+  value: string;
+}
+
+export interface PriceHistoryEntry {
+  price: number;
+  date: string;
 }
 
 export interface Product {
@@ -26,16 +44,44 @@ export interface Product {
   tags?: string[];
   isActive?: boolean;
   isFeatured?: boolean;
-  pricingTiers?: Array<{
-    minQty: number;
-    unitPrice: number;
-  }>;
+  images?: string[];
+  pricingTiers?: PricingTier[];
+  specifications?: ProductSpecification[];
+  priceHistory?: PriceHistoryEntry[];
   imageUrl?: string;
   seller?: {
     _id: string;
     name: string;
     companyName?: string;
   };
+}
+
+export interface BuyAgainProduct extends Product {
+  previousQuantity: number;
+  lastOrderedAt: string;
+}
+
+export interface CustomerStats {
+  totalOrders: number;
+  inTransitOrders: number;
+  completedOrders: number;
+  totalSpend: number;
+  totalPaid: number;
+  totalDue: number;
+}
+
+export interface AppNotification {
+  _id: string;
+  title: string;
+  message: string;
+  type: 'order' | 'payment' | 'delivery' | 'stock' | 'reorder' | 'system';
+  metadata?: {
+    orderId?: string;
+    productId?: string;
+    status?: string;
+  };
+  isRead: boolean;
+  createdAt: string;
 }
 
 export interface CartItem {
@@ -100,6 +146,10 @@ export interface Order {
   deliveryAddress?: DeliveryAddressDetails;
   deliveryAddressDetails?: DeliveryAddressDetails;
   notes?: string;
+  estimatedDeliveryDate?: string | null;
+  estimatedDeliverySlot?: string;
+  dispatchedAt?: string | null;
+  deliveredAt?: string | null;
   createdAt: string;
 }
 
@@ -134,4 +184,10 @@ export interface PaginatedApiResponse<T> {
     limit: number;
     totalPages: number;
   };
+}
+
+export interface PersonalizedRecommendationsResponse {
+  title: string;
+  reasonCategory: string;
+  products: Product[];
 }

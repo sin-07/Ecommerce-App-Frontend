@@ -1,12 +1,14 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,27 +22,35 @@ import { EmptyState, LoadingView } from '../components/StateViews';
 import { API_BASE_URL } from '../constants/api';
 import { CartItem } from '../constants/types';
 import { colors, radius, shadows } from '../constants/theme';
+import { useNetwork } from '../contexts/NetworkContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { clearCart, fetchCart, hydrateCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
 import { placeOrder } from '../redux/slices/orderSlice';
 import { getLinePricing } from '../utils/pricing';
 import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Cart'>;
 
-const resolveImageUrl = (raw?: string) =>
-  raw ? (raw.startsWith('http') ? raw : `${API_BASE_URL.replace('/api', '')}${raw}`) : '';
+const resolveImageUrl = (raw?: string) => {
+  if (!raw) return '';
+  const str = String(raw).trim();
+  if (str.startsWith('http://') || str.startsWith('https://')) return str;
+  return `${API_BASE_URL.replace('/api', '')}${str}`;
+};
 
 type CartRowProps = {
   item: CartItem;
+  isPending?: boolean;
   onIncrement: (item: CartItem) => void;
   onDecrement: (item: CartItem) => void;
   onRemove: (item: CartItem) => void;
 };
 
-const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps) => {
+const CartRow = memo(({ item, isPending = false, onIncrement, onDecrement, onRemove }: CartRowProps) => {
   const imageUrl = resolveImageUrl(item.product.imageUrl);
   const moq = Math.max(1, item.product.minOrderQuantity || 1);
   const unit = item.product.unit || 'unit';
@@ -81,10 +91,15 @@ const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps
         <Pressable
           accessibilityLabel={`Remove ${item.product.name} from cart`}
           onPress={() => onRemove(item)}
-          style={styles.removeButton}
+          disabled={isPending}
+          style={[styles.removeButton, isPending && { opacity: 0.5 }]}
           hitSlop={8}
         >
-          <MaterialCommunityIcons name="trash-can-outline" size={19} color={colors.danger} />
+          {isPending ? (
+            <ActivityIndicator size="small" color={colors.danger} style={{ transform: [{ scale: 0.7 }] }} />
+          ) : (
+            <MaterialCommunityIcons name="trash-can-outline" size={19} color={colors.danger} />
+          )}
         </Pressable>
       </View>
 
@@ -94,7 +109,8 @@ const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps
           <Pressable
             accessibilityLabel="Decrease quantity"
             onPress={() => onDecrement(item)}
-            style={styles.qtyButton}
+            disabled={isPending}
+            style={[styles.qtyButton, isPending && { opacity: 0.5 }]}
             hitSlop={6}
           >
             <MaterialCommunityIcons name="minus" size={17} color={colors.primary} />
@@ -103,7 +119,8 @@ const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps
           <Pressable
             accessibilityLabel="Increase quantity"
             onPress={() => onIncrement(item)}
-            style={[styles.qtyButton, styles.qtyButtonPrimary]}
+            disabled={isPending}
+            style={[styles.qtyButton, styles.qtyButtonPrimary, isPending && { opacity: 0.5 }]}
             hitSlop={6}
           >
             <MaterialCommunityIcons name="plus" size={17} color={colors.white} />
@@ -119,7 +136,9 @@ CartRow.displayName = 'CartRow';
 export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
-  const { items, loading } = useAppSelector((state) => state.cart);
+  const { colors, isDark } = useTheme();
+  const { isOnline } = useNetwork();
+  const { items, loading, pendingItems = {} } = useAppSelector((state) => state.cart);
   const { user } = useAppSelector((state) => state.auth);
   const { error } = useAppSelector((state) => state.orders);
 
@@ -133,6 +152,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const [pincode, setPincode] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Success Modal State
   const [successModalVisible, setSuccessModalVisible] = useState(false);
@@ -144,6 +164,16 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
       dispatch(fetchCart());
     }
   }, [dispatch, user]);
+
+  const onRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      if (user) await dispatch(fetchCart());
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, dispatch, user]);
 
   // Update pre-filled fields if user profile updates
   useEffect(() => {
@@ -168,48 +198,67 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
   const onIncrement = useCallback(
     async (item: CartItem) => {
+      if (pendingItems[item.product._id]) return;
       if (item.quantity >= item.product.stock) {
+        haptics.errorNotification();
         toast.show(`Only ${item.product.stock} cases available in stock.`, 'error');
         return;
       }
+      haptics.selection();
       try {
         await dispatch(updateCartItem({ productId: item.product._id, quantity: item.quantity + 1 })).unwrap();
       } catch (err: any) {
+        haptics.errorNotification();
         toast.show(err || 'Failed to update case quantity', 'error');
       }
     },
-    [dispatch]
+    [dispatch, pendingItems]
   );
 
   const onDecrement = useCallback(
     async (item: CartItem) => {
+      if (pendingItems[item.product._id]) return;
       const moq = Math.max(1, item.product.minOrderQuantity || 1);
       if (item.quantity - 1 < moq) {
+        haptics.lightImpact();
         toast.show(`Minimum order is ${moq} cases. Remove item if not needed.`, 'info');
         return;
       }
+      haptics.selection();
       try {
         await dispatch(updateCartItem({ productId: item.product._id, quantity: item.quantity - 1 })).unwrap();
       } catch (err: any) {
+        haptics.errorNotification();
         toast.show(err || 'Failed to update case quantity', 'error');
       }
     },
-    [dispatch]
+    [dispatch, pendingItems]
   );
 
   const onRemove = useCallback(
     async (item: CartItem) => {
+      if (pendingItems[item.product._id]) return;
+      haptics.lightImpact();
       try {
         await dispatch(removeCartItem(item.product._id)).unwrap();
         toast.show(`${item.product.name} removed from cart.`, 'success');
       } catch (err: any) {
+        haptics.errorNotification();
         toast.show(err || 'Failed to remove item', 'error');
       }
     },
-    [dispatch]
+    [dispatch, pendingItems]
   );
 
   const handlePlaceOrder = async () => {
+    if (submittingOrder) return;
+
+    if (!isOnline) {
+      haptics.errorNotification();
+      toast.show('No internet connection. Please reconnect and try again.', 'error');
+      return;
+    }
+
     const trimmedName = contactName.trim();
     const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
     const trimmedLine1 = addressLine1.trim();
@@ -219,26 +268,32 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
     const cleanPin = pincode.replace(/[^0-9]/g, '');
 
     if (!trimmedName) {
+      haptics.errorNotification();
       Alert.alert('Missing Contact Name', 'Please enter the delivery contact person name.');
       return;
     }
     if (cleanPhone.length < 10) {
+      haptics.errorNotification();
       Alert.alert('Invalid Phone Number', 'Please enter a valid 10-digit Indian mobile number.');
       return;
     }
     if (!trimmedLine1) {
+      haptics.errorNotification();
       Alert.alert('Missing Address Line 1', 'Please enter House / Shop / Street / Building details.');
       return;
     }
     if (!trimmedCity) {
+      haptics.errorNotification();
       Alert.alert('Missing City', 'Please enter the delivery city.');
       return;
     }
     if (!trimmedState) {
+      haptics.errorNotification();
       Alert.alert('Missing State', 'Please enter the delivery state.');
       return;
     }
     if (cleanPin.length !== 6) {
+      haptics.errorNotification();
       Alert.alert('Invalid PIN Code', 'Please enter a valid 6-digit postal PIN code.');
       return;
     }
@@ -253,6 +308,8 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
       .join(', ');
 
     setSubmittingOrder(true);
+    haptics.mediumImpact();
+    const idempotencyKey = `${user?.id || 'b2b'}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     try {
       const placed = await dispatch(
         placeOrder({
@@ -281,13 +338,16 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             country: 'India',
             notes: orderNotes.trim()
           },
-          notes: orderNotes.trim()
+          notes: orderNotes.trim(),
+          idempotencyKey
         })
       ).unwrap();
 
       const orderIdStr = String(placed?._id || '').slice(-6).toUpperCase();
       setPlacedOrderRef(orderIdStr || 'CONFIRMED');
 
+      haptics.successNotification();
+      setSuccessModalVisible(true);
       dispatch(clearCart());
       setAddressLine1('');
       setAddressLine2('');
@@ -312,11 +372,11 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
           <MaterialCommunityIcons name="arrow-left" size={22} color={colors.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Beverage Cart</Text>
+          <Text style={styles.headerTitle}>Wholesale Cart</Text>
           <Text style={styles.headerSubtitle}>
             {items.length
-              ? `${items.length} beverage item${items.length === 1 ? '' : 's'} (${summary.totalCases} cases)`
-              : 'Review your bulk beverage order'}
+              ? `${items.length} product line${items.length === 1 ? '' : 's'} (${summary.totalCases} units)`
+              : 'Review your bulk wholesale order'}
           </Text>
         </View>
       </View>
@@ -377,6 +437,14 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(30, insets.bottom + 24) }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
         >
           {/* CART ITEMS LIST */}
           <View style={styles.sectionHeaderRow}>
@@ -388,6 +456,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             <CartRow
               key={item.product._id}
               item={item}
+              isPending={Boolean(pendingItems[item.product._id])}
               onIncrement={onIncrement}
               onDecrement={onDecrement}
               onRemove={onRemove}

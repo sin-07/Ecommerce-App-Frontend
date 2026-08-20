@@ -19,6 +19,8 @@ export type RootStackParamList = {
   AddProduct: { product?: Product } | undefined;
   AdminProducts: undefined;
   Chat: { orderId: string };
+  Account: undefined;
+  Notifications: undefined;
   SellerDashboard:
     | {
         editProduct?: Product;

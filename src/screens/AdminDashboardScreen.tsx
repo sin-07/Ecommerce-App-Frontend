@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  BackHandler,
   Dimensions,
   Modal,
   Pressable,
@@ -22,10 +23,12 @@ import { EmptyState, ErrorView } from '../components/StateViews';
 import { api } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
 import { Order } from '../constants/types';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { logout } from '../redux/slices/authSlice';
 import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Dashboard = {
@@ -52,22 +55,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'AdminDashboard'>;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(300, SCREEN_WIDTH * 0.78);
 
-const statusTone = (status: string) => {
-  switch (status) {
-    case 'delivered':
-      return { bg: colors.successSurface, border: colors.successBorder, text: colors.success };
-    case 'cancelled':
-      return { bg: colors.dangerSurface, border: colors.dangerBorder, text: colors.danger };
-    case 'shipped':
-      return { bg: colors.infoSurface, border: colors.infoBorder, text: colors.primary };
-    default:
-      return { bg: colors.warningSurface, border: colors.warningBorder, text: '#92400E' };
-  }
-};
-
 export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
   const { user } = useAppSelector((state) => state.auth);
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -79,6 +70,22 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [signingOut, setSigningOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
 
+  const statusTone = useCallback(
+    (status: string) => {
+      switch (status) {
+        case 'delivered':
+          return { bg: colors.successSurface, border: colors.successBorder, text: colors.success };
+        case 'cancelled':
+          return { bg: colors.dangerSurface, border: colors.dangerBorder, text: colors.danger };
+        case 'shipped':
+          return { bg: colors.infoSurface, border: colors.infoBorder, text: colors.primary };
+        default:
+          return { bg: colors.warningSurface, border: colors.warningBorder, text: '#92400E' };
+      }
+    },
+    [colors]
+  );
+
   // Drawer state & animation
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -88,6 +95,7 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [teamModalVisible, setTeamModalVisible] = useState(false);
 
   const openDrawer = () => {
+    haptics.lightImpact();
     setDrawerOpen(true);
     Animated.parallel([
       Animated.spring(drawerAnim, {
@@ -164,6 +172,27 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
     });
     return unsubscribe;
   }, [loadData, navigation]);
+
+  // Android Back Button handler: closes drawer or open modals first
+  useEffect(() => {
+    const backAction = () => {
+      if (drawerOpen) {
+        closeDrawer();
+        return true;
+      }
+      if (teamModalVisible) {
+        setTeamModalVisible(false);
+        return true;
+      }
+      if (developerNoteVisible) {
+        setDeveloperNoteVisible(false);
+        return true;
+      }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => subscription.remove();
+  }, [drawerOpen, teamModalVisible, developerNoteVisible]);
 
   const toggleUserStatus = async (targetUser: AdminUser) => {
     try {

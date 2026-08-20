@@ -4,9 +4,11 @@ import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Easing,
   FlatList,
   LayoutAnimation,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -23,12 +25,14 @@ import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
 import { EmptyState, ErrorView } from '../components/StateViews';
 import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
 import { fetchCategories, fetchProducts, setCachedProducts } from '../redux/slices/productSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Catalog'>;
@@ -78,6 +82,7 @@ AnimatedProductCell.displayName = 'AnimatedProductCell';
 export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
   const { items, loading, loadingMore, error, page, totalPages, categories: backendCategories } = useAppSelector(
     (state) => state.products
   );
@@ -168,6 +173,30 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
         const cached = categoryCacheRef.current[cacheKey];
         dispatch(setCachedProducts({ items: cached.items, page: cached.page, totalPages: cached.totalPages }));
         setIsCategoryLoading(false);
+
+        // Background silent refresh for live stock updates without visual flicker
+        dispatch(
+          fetchProducts({
+            page: targetPage,
+            limit: 16,
+            search: targetSearch.trim(),
+            category: targetCategory,
+            isFeatured,
+            isBestSeller,
+            sortBy
+          })
+        )
+          .unwrap()
+          .then((res) => {
+            if (res?.data && res?.pagination) {
+              categoryCacheRef.current[cacheKey] = {
+                items: res.data,
+                page: res.pagination.page,
+                totalPages: res.pagination.totalPages
+              };
+            }
+          })
+          .catch(() => {});
         return;
       }
 
@@ -223,21 +252,18 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [route.params]);
 
-  // Initial load
+  // Initial metadata load
   useEffect(() => {
-    executeProductFetch(category, search, selectedFilter, 1);
     dispatch(fetchCategories());
-    if (user) {
-      dispatch(fetchCart());
-      dispatch(loadWishlist());
-    }
-  }, [dispatch, user]);
+  }, [dispatch]);
 
-  // Debounced search effect
+  // Debounced search and category/filter fetch effect
   useEffect(() => {
+    const isTyping = search.trim().length > 0;
+    const delay = isTyping ? 350 : 0;
     const timer = setTimeout(() => {
       executeProductFetch(category, search, selectedFilter, 1);
-    }, 260);
+    }, delay);
     return () => clearTimeout(timer);
   }, [search, category, selectedFilter, executeProductFetch]);
 
@@ -297,6 +323,7 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
       const target = items.find((item) => item._id === productId);
 
       if (!user) {
+        haptics.lightImpact();
         if (target) {
           triggerAuthPrompt('cart', target, minOrderQuantity);
         } else {
@@ -306,9 +333,11 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
       }
 
       if (target && target.stock <= 0) {
+        haptics.errorNotification();
         toast.error('This product is currently out of stock.');
         return;
       }
+      haptics.mediumImpact();
       const current = getCartQuantityForProduct(productId);
       try {
         if (current <= 0) {
@@ -320,6 +349,7 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
           toast.success('Cart updated.');
         }
       } catch (cartError: any) {
+        haptics.errorNotification();
         toast.error(cartError || 'Failed to update cart');
       }
     },
@@ -329,9 +359,11 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
   const decrementProduct = useCallback(
     async (productId: string) => {
       if (!user) {
+        haptics.lightImpact();
         triggerAuthPrompt('cart');
         return;
       }
+      haptics.selection();
       const current = getCartQuantityForProduct(productId);
       if (current <= 0) return;
       try {
@@ -352,8 +384,13 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleSelectCategory = useCallback(
     (catId: string) => {
       if (catId === category) return;
+      haptics.selection();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setCategory(catId);
+      const cacheKey = `${catId}_${search.trim().toLowerCase()}_${selectedFilter}_1`;
+      if (!categoryCacheRef.current[cacheKey]) {
+        setIsCategoryLoading(true);
+      }
       executeProductFetch(catId, search, selectedFilter, 1);
     },
     [category, search, selectedFilter, executeProductFetch]
@@ -362,12 +399,38 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleSelectFilter = useCallback(
     (filter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high') => {
       if (filter === selectedFilter) return;
+      haptics.selection();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setSelectedFilter(filter);
+      const cacheKey = `${category}_${search.trim().toLowerCase()}_${filter}_1`;
+      if (!categoryCacheRef.current[cacheKey]) {
+        setIsCategoryLoading(true);
+      }
       executeProductFetch(category, search, filter, 1);
     },
     [selectedFilter, category, search, executeProductFetch]
   );
+
+  // Android Back Button handler: progressively step back state before exiting
+  useEffect(() => {
+    const backAction = () => {
+      if (search.length > 0) {
+        setSearch('');
+        return true;
+      }
+      if (category !== '') {
+        setCategory('');
+        return true;
+      }
+      if (selectedFilter !== 'all') {
+        setSelectedFilter('all');
+        return true;
+      }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => subscription.remove();
+  }, [search, category, selectedFilter]);
 
   const getCategoryCount = useCallback(
     (catId: string) => {
@@ -632,6 +695,10 @@ export const CatalogScreen: React.FC<Props> = ({ navigation, route }) => {
         columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={styles.list}
         ListHeaderComponent={renderHeader}
+        removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={8}
+        initialNumToRender={6}
+        windowSize={7}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
         ListEmptyComponent={
           isCategoryLoading || (loading && items.length === 0) ? (

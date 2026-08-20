@@ -22,6 +22,7 @@ export interface PlaceOrderPayload {
   deliveryAddressDetails?: DeliveryAddressDetails;
   notes?: string;
   amountPaid?: number;
+  idempotencyKey?: string;
 }
 
 const normalizeOrders = (res: any): Order[] => {

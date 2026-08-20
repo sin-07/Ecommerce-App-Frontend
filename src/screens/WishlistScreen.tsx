@@ -1,34 +1,51 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
-import { toggleWishlist, clearWishlist } from '../redux/slices/wishlistSlice';
+import { toggleWishlist, clearWishlist, loadWishlist } from '../redux/slices/wishlistSlice';
 import { addCartItem } from '../redux/slices/cartSlice';
 import { Product } from '../constants/types';
 import { API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
 import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wishlist'>;
 
 export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
+  const { colors, isDark } = useTheme();
   const { items } = useAppSelector((state) => state.wishlist);
+  const pendingCartItems = useAppSelector((state) => state.cart?.pendingItems || {});
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await dispatch(loadWishlist());
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dispatch]);
 
   const handleRemove = useCallback(
     (product: Product) => {
+      haptics.lightImpact();
       dispatch(toggleWishlist(product));
       toast.info(`Removed ${product.name} from wishlist`);
     },
@@ -37,11 +54,18 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleAddToCart = useCallback(
     async (product: Product) => {
+      if (product.stock <= 0) {
+        haptics.errorNotification();
+        toast.error('This product is currently out of stock.');
+        return;
+      }
+      haptics.mediumImpact();
       const step = Math.max(1, product.minOrderQuantity || 1);
       try {
         await dispatch(addCartItem({ productId: product._id, quantity: step })).unwrap();
         toast.success(`Added ${step} ${product.unit || 'unit'}(s) to cart.`);
       } catch (err: any) {
+        haptics.errorNotification();
         toast.error(err || 'Failed to add to cart');
       }
     },
@@ -50,6 +74,10 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
 
   const renderItem = useCallback(
     ({ item }: { item: Product }) => {
+      const isOutOfStock = item.stock <= 0;
+      const isLowStock = item.stock > 0 && item.stock <= 10;
+      const isPending = Boolean(item._id && pendingCartItems[item._id]);
+
       const imageUri = item.imageUrl
         ? item.imageUrl.startsWith('http')
           ? item.imageUrl
@@ -73,12 +101,27 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
                 />
               </View>
             )}
+
+            {/* LOW STOCK / OUT OF STOCK BADGE */}
+            {isOutOfStock ? (
+              <View style={[styles.stockBadge, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
+                <Text style={[styles.stockBadgeText, { color: '#DC2626' }]}>OUT OF STOCK</Text>
+              </View>
+            ) : isLowStock ? (
+              <View style={[styles.stockBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                <Text style={[styles.stockBadgeText, { color: '#D97706' }]}>ONLY {item.stock} LEFT</Text>
+              </View>
+            ) : null}
           </Pressable>
 
           <View style={styles.details}>
             <View style={styles.categoryRow}>
               <Text style={styles.categoryBadge}>{item.category || 'General'}</Text>
-              {item.packSize ? <Text style={styles.packSize}>{item.packSize}</Text> : null}
+              {item.discount ? (
+                <View style={styles.discountBadge}>
+                  <Text style={styles.discountText}>{item.discount}% OFF</Text>
+                </View>
+              ) : null}
             </View>
 
             <Text
@@ -92,16 +135,26 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.priceRow}>
               <Text style={styles.price}>{formatINR(item.price)}</Text>
               {item.unit ? <Text style={styles.unit}>/{item.unit}</Text> : null}
+              {item.minOrderQuantity && item.minOrderQuantity > 1 ? (
+                <Text style={styles.moqText}>(MOQ: {item.minOrderQuantity})</Text>
+              ) : null}
             </View>
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.addToCartBtn}
+                style={[styles.addToCartBtn, (isOutOfStock || isPending) && styles.addToCartBtnDisabled]}
                 onPress={() => handleAddToCart(item)}
+                disabled={isOutOfStock || isPending}
                 activeOpacity={0.8}
               >
-                <Ionicons name="cart-outline" size={16} color={colors.white} />
-                <Text style={styles.addToCartText}>Add to Cart</Text>
+                {isPending ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <>
+                    <Ionicons name="cart-outline" size={16} color={colors.white} />
+                    <Text style={styles.addToCartText}>Add to Cart</Text>
+                  </>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -117,7 +170,7 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       );
     },
-    [navigation, handleAddToCart, handleRemove]
+    [navigation, handleAddToCart, handleRemove, pendingCartItems]
   );
 
   const { user } = useAppSelector((state) => state.auth);
@@ -204,6 +257,14 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
           renderItem={renderItem}
           contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(24, insets.bottom + 16) }]}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
         />
       )}
     </SafeAreaView>
@@ -273,7 +334,8 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: radius.md,
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative'
   },
   image: {
     width: '100%',
@@ -286,6 +348,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.infoSurface,
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  stockBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: radius.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1
+  },
+  stockBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.2
   },
   details: {
     flex: 1,
@@ -305,6 +384,19 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: radius.pill
   },
+  discountBadge: {
+    backgroundColor: colors.successSurface,
+    borderWidth: 1,
+    borderColor: colors.successBorder,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: radius.pill
+  },
+  discountText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.success
+  },
   packSize: {
     fontSize: 11,
     color: colors.textSecondary,
@@ -319,7 +411,7 @@ const styles = StyleSheet.create({
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 2
+    gap: 4
   },
   price: {
     fontSize: 16,
@@ -328,6 +420,11 @@ const styles = StyleSheet.create({
   },
   unit: {
     fontSize: 11,
+    color: colors.textMuted
+  },
+  moqText: {
+    fontSize: 10,
+    fontWeight: '700',
     color: colors.textMuted
   },
   actionRow: {
@@ -346,6 +443,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 8,
     borderRadius: radius.sm
+  },
+  addToCartBtnDisabled: {
+    opacity: 0.5
   },
   addToCartText: {
     color: colors.white,

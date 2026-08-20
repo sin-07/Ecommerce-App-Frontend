@@ -1,6 +1,20 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  BackHandler,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from 'react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState, ErrorView } from '../components/StateViews';
@@ -8,7 +22,9 @@ import { AppButton } from '../components/AppButton';
 import { API_BASE_URL, api } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
+import { useTheme } from '../contexts/ThemeContext';
 import { RootStackParamList } from '../navigation/types';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AdminProducts'>;
@@ -24,7 +40,7 @@ const filters: Array<{ key: Filter; label: string; icon: React.ComponentProps<ty
   { key: 'featured', label: 'Featured', icon: 'lightning-bolt-outline' }
 ];
 
-const imageUrl = (raw?: string) => raw ? (raw.startsWith('http') ? raw : `${API_BASE_URL.replace('/api', '')}${raw}`) : '';
+const imageUrl = (raw?: string) => (raw ? (raw.startsWith('http') ? raw : `${API_BASE_URL.replace('/api', '')}${raw}`) : '');
 
 const FadeCard: React.FC<{ index: number; children: React.ReactNode }> = ({ index, children }) => {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -40,6 +56,7 @@ const FadeCard: React.FC<{ index: number; children: React.ReactNode }> = ({ inde
 
 export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
   const [items, setItems] = useState<Product[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, limit: 12, totalPages: 1 });
   const [search, setSearch] = useState('');
@@ -50,32 +67,46 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const loadProducts = useCallback(async (page = 1, options?: { silent?: boolean }) => {
-    if (!options?.silent) setLoading(true);
-    setError('');
-    try {
-      const params: any = { page, limit: 12, search: search.trim(), sort };
-      if (filter === 'Beverages' || filter === 'Eggs' || filter === 'Existing Products') {
-        params.category = filter;
-      } else if (filter === 'low-stock') {
-        params.status = 'low-stock';
-      } else if (filter === 'featured') {
-        params.isFeatured = true;
+  const latestReqId = useRef(0);
+
+  const loadProducts = useCallback(
+    async (page = 1, options?: { silent?: boolean }) => {
+      if (!options?.silent) setLoading(true);
+      setError('');
+      const reqId = ++latestReqId.current;
+
+      try {
+        const params: any = { page, limit: 12, search: search.trim(), sort };
+        if (filter === 'Beverages' || filter === 'Eggs' || filter === 'Existing Products') {
+          params.category = filter;
+        } else if (filter === 'low-stock') {
+          params.status = 'low-stock';
+        } else if (filter === 'featured') {
+          params.isFeatured = true;
+        }
+
+        const response = await api.get('/admin/products', { params });
+        if (reqId === latestReqId.current) {
+          setItems(response.data.data || []);
+          setPagination(response.data.pagination || { total: 0, page, limit: 12, totalPages: 1 });
+        }
+      } catch (requestError: any) {
+        if (reqId === latestReqId.current) {
+          const message = requestError?.response?.data?.message || 'Unable to load products.';
+          setError(message);
+          toast.error(message);
+        }
+      } finally {
+        if (reqId === latestReqId.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-
-      const response = await api.get('/admin/products', { params });
-      setItems(response.data.data || []);
-      setPagination(response.data.pagination || { total: 0, page, limit: 12, totalPages: 1 });
-    } catch (requestError: any) {
-      const message = requestError?.response?.data?.message || 'Unable to load products.';
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [filter, search, sort]);
+    },
+    [filter, search, sort]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(1), 280);
@@ -87,20 +118,53 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
     return unsubscribe;
   }, [loadProducts, navigation]);
 
+  // Android Back Handler: close modal if open
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const backAction = () => {
+      if (!deleting) {
+        setDeleteTarget(null);
+        return true;
+      }
+      return true;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => subscription.remove();
+  }, [deleteTarget, deleting]);
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleting(true);
+    haptics.mediumImpact();
     try {
       await api.delete(`/admin/products/${target._id}`);
-      toast.success('Product permanently deleted successfully');
+      haptics.successNotification();
+      toast.success('Product permanently deleted from catalog.');
       setItems((prev) => prev.filter((p) => p._id !== target._id));
       setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
       setDeleteTarget(null);
     } catch (requestError: any) {
+      haptics.errorNotification();
       toast.error(requestError?.response?.data?.message || 'Unable to delete product. Please try again.');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleToggleActive = async (item: Product) => {
+    const nextActive = item.isActive === false ? true : false;
+    setTogglingId(item._id);
+    haptics.selection();
+    try {
+      await api.patch(`/admin/products/${item._id}/status`, { isActive: nextActive });
+      toast.success(`Product marked as ${nextActive ? 'Active (Live)' : 'Inactive (Hidden)'}`);
+      setItems((prev) => prev.map((p) => (p._id === item._id ? { ...p, isActive: nextActive } : p)));
+    } catch (err: any) {
+      haptics.errorNotification();
+      toast.error(err?.response?.data?.message || 'Failed to update product status');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -110,6 +174,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
     const outOfStock = item.stock <= 0;
     const lowStock = item.stock > 0 && item.stock < 10;
     const unit = item.unit || 'unit';
+    const isToggling = togglingId === item._id;
 
     return (
       <FadeCard index={index}>
@@ -132,8 +197,8 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
                   style={[
                     styles.badge,
                     {
-                      backgroundColor: active ? colors.successSurface : colors.cardAlt,
-                      borderColor: active ? colors.successBorder : colors.border
+                      backgroundColor: active ? colors.successSurface : '#F1F5F9',
+                      borderColor: active ? colors.successBorder : '#CBD5E1'
                     }
                   ]}
                 >
@@ -168,7 +233,9 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.metricRow}>
             <View>
               <Text style={styles.metricLabel}>Price</Text>
-              <Text style={styles.metricValue}>₹{Number(item.price).toFixed(2)}/{unit}</Text>
+              <Text style={styles.metricValue}>
+                ₹{Number(item.price).toFixed(2)}/{unit}
+              </Text>
             </View>
             <View>
               <Text style={styles.metricLabel}>Stock</Text>
@@ -178,26 +245,68 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
             <View>
               <Text style={styles.metricLabel}>MOQ</Text>
-              <Text style={styles.metricValue}>{item.minOrderQuantity || 1} {unit}</Text>
+              <Text style={styles.metricValue}>
+                {item.minOrderQuantity || 1} {unit}
+              </Text>
             </View>
             <View>
               <Text style={styles.metricLabel}>Status</Text>
-              <Text style={[styles.metricValue, outOfStock ? styles.metricWarning : lowStock ? styles.metricWarning : styles.metricGood]}>
+              <Text
+                style={[
+                  styles.metricValue,
+                  outOfStock ? styles.metricWarning : lowStock ? styles.metricWarning : styles.metricGood
+                ]}
+              >
                 {outOfStock ? 'Out of Stock' : lowStock ? 'Low Stock' : 'Ready'}
               </Text>
             </View>
           </View>
 
           <View style={styles.actions}>
+            {/* EDIT PRODUCT */}
             <Pressable
               style={styles.editButton}
               onPress={() => navigation.navigate('AddProduct', { product: item })}
+              accessibilityLabel={`Edit ${item.name}`}
             >
-              <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.primary} />
-              <Text style={styles.editText}>Edit Product</Text>
+              <MaterialCommunityIcons name="pencil-outline" size={15} color={colors.primary} />
+              <Text style={styles.editText}>Edit</Text>
             </Pressable>
-            <Pressable style={styles.deleteButton} onPress={() => setDeleteTarget(item)}>
-              <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.danger} />
+
+            {/* DEACTIVATE / ACTIVATE TOGGLE */}
+            <Pressable
+              style={[styles.toggleActiveBtn, !active && styles.toggleActiveBtnInactive]}
+              disabled={isToggling}
+              onPress={() => handleToggleActive(item)}
+              accessibilityLabel={active ? `Deactivate ${item.name}` : `Activate ${item.name}`}
+            >
+              {isToggling ? (
+                <ActivityIndicator
+                  size="small"
+                  color={active ? '#B45309' : colors.success}
+                  style={{ transform: [{ scale: 0.7 }] }}
+                />
+              ) : (
+                <>
+                  <MaterialCommunityIcons
+                    name={active ? 'pause-circle-outline' : 'play-circle-outline'}
+                    size={15}
+                    color={active ? '#B45309' : colors.success}
+                  />
+                  <Text style={[styles.toggleActiveText, { color: active ? '#B45309' : colors.success }]}>
+                    {active ? 'Deactivate' : 'Activate'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            {/* PERMANENT DELETE */}
+            <Pressable
+              style={styles.deleteButton}
+              onPress={() => setDeleteTarget(item)}
+              accessibilityLabel={`Delete ${item.name}`}
+            >
+              <MaterialCommunityIcons name="trash-can-outline" size={15} color={colors.danger} />
               <Text style={styles.deleteText}>Delete</Text>
             </Pressable>
           </View>
@@ -215,9 +324,13 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
         </Pressable>
         <View style={styles.headerCopy}>
           <Text style={styles.headerTitle}>Product Management</Text>
-          <Text style={styles.headerSubtitle}>Manage Beverages, Eggs & Wholesale products.</Text>
+          <Text style={styles.headerSubtitle}>Manage Beverages, Eggs & Wholesale catalog.</Text>
         </View>
-        <Pressable accessibilityLabel="Add product" onPress={() => navigation.navigate('AddProduct')} style={styles.addButton}>
+        <Pressable
+          accessibilityLabel="Add product"
+          onPress={() => navigation.navigate('AddProduct')}
+          style={styles.addButton}
+        >
           <Ionicons name="add" size={22} color={colors.white} />
         </Pressable>
       </View>
@@ -255,9 +368,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
                 size={15}
                 color={filter === item.key ? colors.white : colors.textSecondary}
               />
-              <Text style={[styles.filterText, filter === item.key && styles.filterTextActive]}>
-                {item.label}
-              </Text>
+              <Text style={[styles.filterText, filter === item.key && styles.filterTextActive]}>{item.label}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -283,14 +394,17 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
 
       {error && !items.length ? (
         <View style={styles.errorWrap}>
-          <ErrorView message={error} />
-          <AppButton title="Retry" icon="refresh" variant="secondary" onPress={() => loadProducts(1)} />
+          <ErrorView message={error} onRetry={() => loadProducts(1)} />
         </View>
       ) : (
         <Animated.FlatList
           data={items}
           keyExtractor={(item) => item._id}
           renderItem={renderItem}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={8}
+          initialNumToRender={6}
+          windowSize={7}
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 22) }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -306,7 +420,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
           ListEmptyComponent={
             loading ? (
               <View style={styles.loadingCard}>
-                <MaterialCommunityIcons name="loading" size={25} color={colors.primary} />
+                <ActivityIndicator size="large" color={colors.primary} />
                 <Text style={styles.loadingText}>Loading catalog items...</Text>
               </View>
             ) : (
@@ -369,7 +483,8 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
             <Text style={styles.confirmTitle}>Delete Product?</Text>
             <Text style={styles.confirmText}>
-              Are you sure you want to permanently delete &ldquo;{deleteTarget?.name}&rdquo;? This action cannot be undone and will permanently remove this product from the database and catalog.
+              Are you sure you want to permanently delete &ldquo;{deleteTarget?.name}&rdquo;? This action cannot be
+              undone and will permanently remove this product from the database and catalog.
             </Text>
             <View style={styles.confirmActions}>
               <View style={styles.confirmHalf}>
@@ -382,7 +497,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
               <View style={styles.confirmHalf}>
                 <AppButton
-                  title={deleting ? 'Deleting...' : 'Delete Product'}
+                  title={deleting ? 'Deleting...' : 'Delete'}
                   icon="trash-can-outline"
                   variant="danger"
                   loading={deleting}
@@ -449,53 +564,46 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
     fontWeight: '900',
     marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 6
+    marginTop: 12,
+    marginBottom: 8
   },
-  filterRow: { flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingBottom: 12 },
+  filterRow: { paddingHorizontal: 16, gap: 8 },
   filterChip: {
-    minHeight: 36,
-    borderRadius: radius.pill,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5
+    gap: 6
   },
   filterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  filterText: { color: colors.textSecondary, fontSize: 11.5, fontWeight: '800' },
+  filterText: { color: colors.textSecondary, fontSize: 12, fontWeight: '800' },
   filterTextActive: { color: colors.white },
   listMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingBottom: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    paddingTop: 14,
+    paddingBottom: 8
   },
-  resultText: { color: colors.text, fontSize: 13.5, fontWeight: '900' },
-  sortButton: {
-    minHeight: 32,
-    borderRadius: 8,
-    backgroundColor: colors.infoSurface,
-    paddingHorizontal: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4
-  },
-  sortText: { color: colors.primaryPressed, fontSize: 11, fontWeight: '800' },
-  list: { paddingHorizontal: 16, gap: 11 },
+  resultText: { color: colors.textSecondary, fontSize: 12, fontWeight: '800' },
+  sortButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sortText: { color: colors.primary, fontSize: 12, fontWeight: '800' },
+  list: { paddingHorizontal: 16, gap: 10 },
   productCard: {
     backgroundColor: colors.card,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: 13,
+    padding: 12,
     gap: 10,
     ...shadows.card
   },
-  productTop: { flexDirection: 'row', gap: 11 },
+  productTop: { flexDirection: 'row', gap: 10 },
   productImage: { width: 78, height: 78, borderRadius: radius.md, backgroundColor: colors.cardAlt },
   productImageFallback: {
     width: 78,
@@ -537,21 +645,42 @@ const styles = StyleSheet.create({
     minHeight: 38,
     borderRadius: 10,
     backgroundColor: colors.infoSurface,
+    borderWidth: 1,
+    borderColor: colors.infoBorder,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5
+    gap: 4
   },
   editText: { color: colors.primaryPressed, fontSize: 12, fontWeight: '900' },
+  toggleActiveBtn: {
+    flex: 1.25,
+    minHeight: 38,
+    borderRadius: 10,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4
+  },
+  toggleActiveBtnInactive: {
+    backgroundColor: colors.successSurface,
+    borderColor: colors.successBorder
+  },
+  toggleActiveText: { fontSize: 12, fontWeight: '900' },
   deleteButton: {
     flex: 1,
     minHeight: 38,
     borderRadius: 10,
     backgroundColor: colors.dangerSurface,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5
+    gap: 4
   },
   deleteText: { color: colors.danger, fontSize: 12, fontWeight: '900' },
   loadingCard: { minHeight: 150, alignItems: 'center', justifyContent: 'center', gap: 8 },

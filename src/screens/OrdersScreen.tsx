@@ -19,13 +19,16 @@ import { AppButton } from '../components/AppButton';
 import { EmptyState, ErrorView, LoadingView } from '../components/StateViews';
 import { OrderCardSkeleton } from '../components/OrderCardSkeleton';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
-import { API_BASE_URL } from '../constants/api';
+import { api, API_BASE_URL } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
-import { Order, OrderItem } from '../constants/types';
+import { Order, OrderItem, Product } from '../constants/types';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
+import { addCartItem } from '../redux/slices/cartSlice';
 import { fetchAdminOrders, fetchBuyerOrders, fetchSellerOrders, updateOrderStatus } from '../redux/slices/orderSlice';
 import { formatINR } from '../utils/currency';
+import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Orders'>;
@@ -118,13 +121,16 @@ const getItemUnit = (item: OrderItem): string => {
 export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
-  const { user } = useAppSelector((state) => state.auth);
+  const { colors, isDark } = useTheme();
   const { items, loading, error } = useAppSelector((state) => state.orders);
+  const { user } = useAppSelector((state) => state.auth);
 
-  const [isInitialLoading, setIsInitialLoading] = useState(items.length === 0);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
 
   const loadOrders = useCallback(
@@ -166,6 +172,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   }, [user, loadOrders]);
 
   const toggleExpand = (orderId: string) => {
+    haptics.selection();
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedOrders((prev) => ({
       ...prev,
@@ -175,14 +182,17 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleUpdateStatus = async (orderId: string, nextStatus: (typeof statusFlow)[number]) => {
     setUpdatingId(orderId);
+    haptics.mediumImpact();
     try {
       await dispatch(updateOrderStatus({ id: orderId, status: nextStatus })).unwrap();
+      haptics.successNotification();
       toast.show(
         `Order #${orderId.slice(-6).toUpperCase()} marked as ${statusLabel[nextStatus]}. Customer notified.`,
         'success',
         'Status Updated'
       );
     } catch (err: any) {
+      haptics.errorNotification();
       toast.show(err || 'Unable to update order status.', 'error', 'Update Failed');
     } finally {
       setUpdatingId(null);
@@ -191,6 +201,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleMarkPaid = async (order: Order) => {
     setUpdatingId(order._id);
+    haptics.mediumImpact();
     try {
       await dispatch(
         updateOrderStatus({
@@ -200,15 +211,64 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           paymentStatus: 'PAID'
         })
       ).unwrap();
+      haptics.successNotification();
       toast.show(
         `Order #${order._id.slice(-6).toUpperCase()} payment marked as PAID.`,
         'success',
         'Payment Updated'
       );
     } catch (err: any) {
+      haptics.errorNotification();
       toast.show(err || 'Unable to update payment status.', 'error', 'Update Failed');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleReorderEntireOrder = async (order: Order) => {
+    if (!order.items || order.items.length === 0) return;
+    haptics.mediumImpact();
+    setReorderingId(order._id);
+    let addedCount = 0;
+    let unavailableCount = 0;
+
+    try {
+      for (const item of order.items) {
+        const pid = typeof item.product === 'object' && item.product ? item.product._id : String(item.product);
+        if (!pid) continue;
+
+        try {
+          const res = await api.get(`/products/${pid}`);
+          const liveProd: Product = res.data.data;
+
+          if (!liveProd || !liveProd.isActive || liveProd.stock <= 0) {
+            unavailableCount++;
+            continue;
+          }
+
+          const moq = Math.max(1, liveProd.minOrderQuantity || 1);
+          const targetQty = Math.max(moq, Math.min(item.quantity || 1, liveProd.stock));
+          await dispatch(addCartItem({ productId: pid, quantity: targetQty })).unwrap();
+          addedCount++;
+        } catch {
+          unavailableCount++;
+        }
+      }
+
+      if (addedCount > 0) {
+        toast.show(
+          `Added ${addedCount} item(s) from Order #${order._id.slice(-6).toUpperCase()} to your cart.${unavailableCount > 0 ? ` (${unavailableCount} unavailable skipped)` : ''}`,
+          'success',
+          'Cart Updated'
+        );
+        navigation.navigate('Cart');
+      } else {
+        toast.show('All items from this order are currently out of stock or unavailable.', 'error', 'Reorder Unavailable');
+      }
+    } catch {
+      toast.show('Failed to reorder items. Please try again.', 'error');
+    } finally {
+      setReorderingId(null);
     }
   };
 
@@ -274,6 +334,10 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
         <FlatList
           data={items}
           keyExtractor={(item) => item._id}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={8}
+          initialNumToRender={6}
+          windowSize={7}
           refreshControl={
             <RefreshControl
               refreshing={refreshing || loading}
@@ -422,25 +486,52 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       })}
                     </View>
 
-                    {/* 2. DELIVERY ADDRESS */}
+                    {/* 2. DELIVERY ADDRESS (SEPARATED FIELDS) */}
                     <View style={styles.addressBlock}>
                       <View style={styles.addressTitleRow}>
                         <Ionicons name="location-outline" size={16} color={colors.primary} />
                         <Text style={styles.addressTitle}>Delivery Location</Text>
                       </View>
 
-                      <Text style={styles.addressRecipient}>{contactName}</Text>
+                      <View style={styles.addressFieldRow}>
+                        <Text style={styles.addressFieldLabel}>Customer Name:</Text>
+                        <Text style={styles.addressFieldValue}>{contactName}</Text>
+                      </View>
+
                       {contactPhone ? (
-                        <View style={styles.inlineInfoRow}>
-                          <Ionicons name="call-outline" size={13} color={colors.textSecondary} />
-                          <Text style={styles.addressPhone}>{contactPhone}</Text>
+                        <View style={styles.addressFieldRow}>
+                          <Text style={styles.addressFieldLabel}>Phone Number:</Text>
+                          <Text style={styles.addressFieldValue}>{contactPhone}</Text>
                         </View>
                       ) : null}
-                      <Text style={styles.addressBody}>{addrLine1}</Text>
-                      {addrLine2 ? <Text style={styles.addressBody}>{addrLine2}</Text> : null}
-                      <Text style={styles.addressBody}>
-                        {[addrCity, addrState, addrPincode].filter(Boolean).join(', ')}
-                      </Text>
+
+                      <View style={styles.addressFieldRow}>
+                        <Text style={styles.addressFieldLabel}>Address Line 1:</Text>
+                        <Text style={styles.addressFieldValue}>{addrLine1 || 'N/A'}</Text>
+                      </View>
+
+                      {addrLine2 ? (
+                        <View style={styles.addressFieldRow}>
+                          <Text style={styles.addressFieldLabel}>Address Line 2:</Text>
+                          <Text style={styles.addressFieldValue}>{addrLine2}</Text>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.addressFieldRow}>
+                        <Text style={styles.addressFieldLabel}>City:</Text>
+                        <Text style={styles.addressFieldValue}>{addrCity || 'N/A'}</Text>
+                      </View>
+
+                      <View style={styles.addressFieldRow}>
+                        <Text style={styles.addressFieldLabel}>State:</Text>
+                        <Text style={styles.addressFieldValue}>{addrState || 'N/A'}</Text>
+                      </View>
+
+                      <View style={styles.addressFieldRow}>
+                        <Text style={styles.addressFieldLabel}>Pincode:</Text>
+                        <Text style={styles.addressFieldValue}>{addrPincode || 'N/A'}</Text>
+                      </View>
+
                       {item.notes ? (
                         <View style={styles.notesBox}>
                           <Ionicons name="document-text-outline" size={13} color="#92400E" />
@@ -449,7 +540,42 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       ) : null}
                     </View>
 
-                    {/* 3. FINANCIAL PAYMENT BREAKDOWN (SEPARATED PAID AND DUE) */}
+                    {/* 3. DELIVERY INFORMATION & REAL TIME ETA */}
+                    <View style={styles.etaCard}>
+                      <View style={styles.etaHeaderRow}>
+                        <MaterialCommunityIcons name="truck-delivery-outline" size={17} color={colors.primary} />
+                        <Text style={styles.etaHeaderTitle}>Delivery Status & ETA</Text>
+                      </View>
+
+                      {item.status === 'delivered' ? (
+                        <View style={styles.etaStatusBox}>
+                          <Ionicons name="checkmark-circle" size={15} color={colors.success} />
+                          <Text style={styles.etaStatusSuccessText}>
+                            Delivered on {item.deliveredAt ? new Date(item.deliveredAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : date}
+                          </Text>
+                        </View>
+                      ) : item.estimatedDeliveryDate ? (
+                        <View style={styles.etaStatusBox}>
+                          <Ionicons name="calendar-outline" size={15} color={colors.primary} />
+                          <Text style={styles.etaStatusText}>
+                            Expected Delivery: {new Date(item.estimatedDeliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {item.estimatedDeliverySlot ? ` (${item.estimatedDeliverySlot})` : ''}
+                          </Text>
+                        </View>
+                      ) : item.status === 'shipped' ? (
+                        <View style={styles.etaStatusBox}>
+                          <Ionicons name="paper-plane-outline" size={15} color={colors.primary} />
+                          <Text style={styles.etaStatusText}>Dispatched for delivery • Expected within 24–48 hrs</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.etaStatusBox}>
+                          <Ionicons name="information-circle-outline" size={15} color={colors.textSecondary} />
+                          <Text style={styles.etaStatusMutedText}>Delivery estimate will be available after dispatch.</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* 4. FINANCIAL PAYMENT BREAKDOWN (SEPARATED PAID AND DUE) */}
                     <View style={styles.priceBreakdown}>
                       <View style={styles.priceRow}>
                         <Text style={styles.priceLabel}>Items Subtotal</Text>
@@ -523,6 +649,18 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       <MaterialCommunityIcons name="credit-card-check-outline" size={17} color={colors.primary} />
                       <Text style={styles.markPaidText}>Mark Full Payment as Paid ({formatINR(amountDue)})</Text>
                     </Pressable>
+                  )}
+
+                  {/* BUYER REORDER ENTIRE ORDER BUTTON */}
+                  {!isAdminOrSeller && (
+                    <AppButton
+                      title="Reorder Entire Order"
+                      icon="refresh"
+                      variant="secondary"
+                      fullWidth
+                      loading={reorderingId === item._id}
+                      onPress={() => handleReorderEntireOrder(item)}
+                    />
                   )}
 
                   {/* ORDER CHAT & SUPPORT BUTTON */}
@@ -772,12 +910,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginBottom: 2
+    marginBottom: 4
   },
   addressTitle: {
     color: colors.navy,
     fontSize: 12.5,
     fontWeight: '800'
+  },
+  addressFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingVertical: 1.5
+  },
+  addressFieldLabel: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontWeight: '700',
+    width: 104
+  },
+  addressFieldValue: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1
   },
   addressRecipient: {
     color: colors.text,
@@ -812,6 +968,49 @@ const styles = StyleSheet.create({
     color: '#92400E',
     fontSize: 11.5,
     fontWeight: '700'
+  },
+  etaCard: {
+    backgroundColor: colors.cardAlt,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 8
+  },
+  etaHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  etaHeaderTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.navy
+  },
+  etaStatusBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.card,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight
+  },
+  etaStatusSuccessText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.success
+  },
+  etaStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary
+  },
+  etaStatusMutedText: {
+    fontSize: 11.5,
+    color: colors.textSecondary
   },
   priceBreakdown: {
     backgroundColor: colors.cardAlt,
