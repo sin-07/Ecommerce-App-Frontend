@@ -365,7 +365,7 @@ export const ProductForm: React.FC<Props> = ({
       <View style={styles.card}>
         <View style={styles.toggleRow}>
           <View style={styles.toggleCopy}>
-            <Text style={styles.toggleTitle}>⭐ Featured on Buyer Home</Text>
+            <Text style={styles.toggleTitle}>Featured on Buyer Home</Text>
             <Text style={styles.toggleHint}>Highlights this item in top promotional sections.</Text>
           </View>
           <Switch
@@ -380,7 +380,7 @@ export const ProductForm: React.FC<Props> = ({
 
         <View style={styles.toggleRow}>
           <View style={styles.toggleCopy}>
-            <Text style={styles.toggleTitle}>🔥 Bestseller Badge</Text>
+            <Text style={styles.toggleTitle}>Bestseller Badge</Text>
             <Text style={styles.toggleHint}>Flags item with Bestseller tag across catalog.</Text>
           </View>
           <Switch

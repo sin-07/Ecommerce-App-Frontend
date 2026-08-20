@@ -92,7 +92,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
     if (isWishlisted) {
       toast.info(`Removed ${resolved.name} from wishlist`);
     } else {
-      toast.success(`Saved to wishlist ❤️`);
+      toast.success(`Saved to wishlist`);
     }
   };
 
@@ -115,10 +115,10 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
     try {
       if (inCart <= 0) {
         await dispatch(addCartItem({ productId: resolved._id, quantity })).unwrap();
-        toast.success(`Added ${quantity} ${unitName}(s) to cart 🛒`);
+        toast.success(`Added ${quantity} ${unitName}(s) to cart.`);
       } else {
         await dispatch(updateCartItem({ productId: resolved._id, quantity })).unwrap();
-        toast.success('Cart updated 🛒');
+        toast.success('Cart updated.');
       }
     } catch (cartError: any) {
       toast.error(cartError || 'Failed to update cart');
@@ -213,7 +213,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
           </View>
           {resolved.packSize ? (
             <View style={styles.packPill}>
-              <Text style={styles.packPillText}>📦 {resolved.packSize}</Text>
+              <Text style={styles.packPillText}>{resolved.packSize}</Text>
             </View>
           ) : null}
         </View>
@@ -333,7 +333,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
                   onView={() => navigation.push('ProductDetails', { productId: item._id, product: item })}
                   onIncrementCart={() => {
                     dispatch(addCartItem({ productId: item._id, quantity: item.minOrderQuantity || 1 }));
-                    toast.success(`Added ${item.name} to cart 🛒`);
+                    toast.success(`Added ${item.name} to cart.`);
                   }}
                 />
               </View>

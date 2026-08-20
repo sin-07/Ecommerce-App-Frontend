@@ -39,28 +39,51 @@ const statusActionConfig: Record<
   { nextStatus: (typeof statusFlow)[number]; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']; variant: 'primary' | 'success' }
 > = {
   pending: { nextStatus: 'packed', label: 'Confirm Order (Pack Items)', icon: 'check-circle-outline', variant: 'primary' },
+  processing: { nextStatus: 'packed', label: 'Confirm Order (Pack Items)', icon: 'check-circle-outline', variant: 'primary' },
   packed: { nextStatus: 'shipped', label: 'Dispatch Order (Notify Buyer)', icon: 'truck-fast-outline', variant: 'primary' },
-  shipped: { nextStatus: 'delivered', label: 'Mark as Delivered', icon: 'check-decagram-outline', variant: 'success' }
+  confirmed: { nextStatus: 'shipped', label: 'Dispatch Order (Notify Buyer)', icon: 'truck-fast-outline', variant: 'primary' },
+  shipped: { nextStatus: 'delivered', label: 'Mark as Delivered', icon: 'check-decagram-outline', variant: 'success' },
+  dispatched: { nextStatus: 'delivered', label: 'Mark as Delivered', icon: 'check-decagram-outline', variant: 'success' }
 };
 
 const statusLabel: Record<string, string> = {
   pending: 'Processing',
+  processing: 'Processing',
   packed: 'Confirmed',
+  confirmed: 'Confirmed',
   shipped: 'Dispatched',
+  dispatched: 'Dispatched',
   delivered: 'Delivered',
   cancelled: 'Cancelled'
 };
 
 const statusTone = (status: string) => {
-  switch (status) {
+  const s = String(status || '').toLowerCase();
+  switch (s) {
     case 'delivered':
-      return { bg: colors.successSurface, border: colors.successBorder, text: colors.success };
+      return { bg: '#ECFDF5', border: '#A7F3D0', text: '#047857' };
     case 'cancelled':
-      return { bg: colors.dangerSurface, border: colors.dangerBorder, text: colors.danger };
+      return { bg: '#FEF2F2', border: '#FECACA', text: '#B91C1C' };
     case 'shipped':
-      return { bg: colors.infoSurface, border: colors.infoBorder, text: colors.primary };
+    case 'dispatched':
+      return { bg: '#E0F2FE', border: '#BAE6FD', text: '#0284C7' };
+    case 'packed':
+    case 'confirmed':
+      return { bg: '#EFF6FF', border: '#BFDBFE', text: '#1D4ED8' };
     default:
-      return { bg: colors.warningSurface, border: colors.warningBorder, text: '#92400E' };
+      return { bg: '#FFFBEB', border: '#FDE68A', text: '#92400E' };
+  }
+};
+
+const paymentStatusTone = (status: string) => {
+  const s = String(status || 'DUE').toUpperCase();
+  switch (s) {
+    case 'PAID':
+      return { bg: '#ECFDF5', border: '#A7F3D0', text: '#047857', label: 'PAID' };
+    case 'PARTIALLY_PAID':
+      return { bg: '#FFFBEB', border: '#FDE68A', text: '#B45309', label: 'PARTIALLY PAID' };
+    default:
+      return { bg: '#FEF2F2', border: '#FECACA', text: '#B91C1C', label: 'DUE' };
   }
 };
 
@@ -131,6 +154,29 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
+  const handleMarkPaid = async (order: Order) => {
+    setUpdatingId(order._id);
+    try {
+      await dispatch(
+        updateOrderStatus({
+          id: order._id,
+          status: order.status,
+          amountPaid: order.totalAmount,
+          paymentStatus: 'PAID'
+        })
+      ).unwrap();
+      toast.show(
+        `Order #${order._id.slice(-6).toUpperCase()} payment marked as PAID.`,
+        'success',
+        'Payment Updated'
+      );
+    } catch (err: any) {
+      toast.show(err || 'Unable to update payment status.', 'error', 'Update Failed');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const header = (
     <View style={styles.header}>
       <Pressable accessibilityLabel="Go back" onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -138,7 +184,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
       </Pressable>
       <View style={{ flex: 1 }}>
         <Text style={styles.headerTitle}>Order Tracking</Text>
-        <Text style={styles.headerSubtitle}>AP Enterprises B2B Fulfillment & Supply</Text>
+        <Text style={styles.headerSubtitle}>AP Enterprises B2B Wholesale Supply</Text>
       </View>
     </View>
   );
@@ -156,22 +202,36 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         {header}
-        <ErrorView message={error} />
+        <ErrorView
+          message={error}
+          onRetry={() => {
+            if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
+            if (user?.role === 'seller') dispatch(fetchSellerOrders());
+            if (user?.role === 'admin') dispatch(fetchAdminOrders());
+          }}
+        />
       </SafeAreaView>
     );
   }
 
+  const isAdminOrSeller = user?.role === 'admin' || user?.role === 'seller';
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {header}
+
       {!items.length ? (
         <View style={styles.emptyWrap}>
           <EmptyState
             icon="package-variant-closed"
-            title="No Orders Placed Yet"
-            description="Your wholesale beverage and egg orders will appear here once placed."
-            actionLabel={user?.role === 'buyer' ? 'Browse Catalog' : 'Go Back'}
-            onAction={() => (user?.role === 'buyer' ? navigation.navigate('Home') : navigation.goBack())}
+            title="No Orders Found"
+            description={
+              isAdminOrSeller
+                ? 'No commercial orders have been placed in the system yet.'
+                : 'You have not placed any wholesale orders yet. Explore our beverages and farm eggs catalog.'
+            }
+            actionLabel="Browse Products"
+            onAction={() => navigation.navigate('Home')}
           />
         </View>
       ) : (
@@ -179,23 +239,12 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           data={items}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <View style={styles.intro}>
-              <Text style={styles.introTitle}>
-                {user?.role === 'buyer' ? 'Your Wholesale Orders' : 'Fulfillment Queue'}
-              </Text>
-              <Text style={styles.introText}>
-                {items.length} active and fulfilled order{items.length === 1 ? '' : 's'}
-              </Text>
-            </View>
-          }
           renderItem={({ item }) => {
+            const tone = statusTone(item.status);
             const isExpanded = Boolean(expandedOrders[item._id]);
             const actionConfig = statusActionConfig[item.status];
-            const tone = statusTone(item.status);
             const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
-              day: '2-digit',
+              day: 'numeric',
               month: 'short',
               year: 'numeric'
             });
@@ -205,44 +254,45 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             const deliveryFee = item.deliveryFee || 0;
             const discount = item.discount || 0;
 
-            const customerDisplayName =
-              item.customerName ||
-              item.deliveryAddressDetails?.fullName ||
-              (typeof item.buyer === 'object' && item.buyer?.name) ||
-              'Valued Wholesale Buyer';
+            const amountPaid = Number(item.amountPaid || 0);
+            const amountDue = Number(item.amountDue !== undefined ? item.amountDue : Math.max(item.totalAmount - amountPaid, 0));
+            const paymentStatus = item.paymentStatus || (amountPaid >= item.totalAmount ? 'PAID' : amountPaid > 0 ? 'PARTIALLY_PAID' : 'DUE');
+            const payTone = paymentStatusTone(paymentStatus);
 
-            const customerPhone =
-              item.phoneNumber ||
-              item.deliveryAddressDetails?.phone ||
-              (typeof item.buyer === 'object' && item.buyer?.phone) ||
-              '';
-
-            const formattedAddress =
-              item.shippingAddress ||
-              [
-                item.deliveryAddressDetails?.street,
-                item.deliveryAddressDetails?.city,
-                item.deliveryAddressDetails?.state,
-                item.deliveryAddressDetails?.postalCode,
-                item.deliveryAddressDetails?.country
-              ]
-                .filter(Boolean)
-                .join(', ');
+            const addr = item.deliveryAddress || item.deliveryAddressDetails || {};
+            const contactName = addr.contactName || item.customerName || (typeof item.buyer === 'object' && item.buyer?.name) || 'Wholesale Buyer';
+            const contactPhone = addr.phone || item.phoneNumber || (typeof item.buyer === 'object' && item.buyer?.phone) || '';
+            const buyerCompany = (typeof item.buyer === 'object' && item.buyer?.companyName) || '';
+            const addrLine1 = addr.addressLine1 || addr.street || item.shippingAddress || '';
+            const addrLine2 = addr.addressLine2 || '';
+            const addrCity = addr.city || '';
+            const addrState = addr.state || '';
+            const addrPincode = addr.pincode || addr.postalCode || '';
 
             return (
               <View style={styles.card}>
                 {/* ORDER HEADER */}
                 <View style={styles.cardTop}>
-                  <View>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
                     <View style={styles.orderIdRow}>
                       <Text style={styles.orderId}>Order #{item._id.slice(-6).toUpperCase()}</Text>
                     </View>
                     <Text style={styles.orderDate}>Placed on {date}</Text>
+                    {isAdminOrSeller && (
+                      <Text style={styles.buyerCompanyText} numberOfLines={1}>
+                        {contactName}{buyerCompany ? ` • ${buyerCompany}` : ''}
+                      </Text>
+                    )}
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: tone.bg, borderColor: tone.border }]}>
-                    <Text style={[styles.statusText, { color: tone.text }]}>
-                      {statusLabel[item.status] || item.status}
-                    </Text>
+                  <View style={styles.headerBadgesCol}>
+                    <View style={[styles.statusBadge, { backgroundColor: tone.bg, borderColor: tone.border }]}>
+                      <Text style={[styles.statusText, { color: tone.text }]}>
+                        {statusLabel[item.status] || item.status}
+                      </Text>
+                    </View>
+                    <View style={[styles.payBadge, { backgroundColor: payTone.bg, borderColor: payTone.border }]}>
+                      <Text style={[styles.payBadgeText, { color: payTone.text }]}>{payTone.label}</Text>
+                    </View>
                   </View>
                 </View>
 
@@ -251,7 +301,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                   <View>
                     <Text style={styles.amount}>{formatINR(item.totalAmount)}</Text>
                     <Text style={styles.meta}>
-                      {(item.items || []).length} product line{(item.items || []).length === 1 ? '' : 's'} • {totalUnits} total unit{totalUnits === 1 ? '' : 's'}
+                      {(item.items || []).length} product line{(item.items || []).length === 1 ? '' : 's'} • {totalUnits} unit{totalUnits === 1 ? '' : 's'}
                     </Text>
                   </View>
 
@@ -280,7 +330,11 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                     <View style={styles.divider} />
 
                     {/* 1. ORDERED PRODUCT ITEMS */}
-                    <Text style={styles.detailsSectionTitle}>📦 Ordered Products</Text>
+                    <View style={styles.sectionHeaderRow}>
+                      <MaterialCommunityIcons name="package-variant-closed" size={16} color={colors.primary} />
+                      <Text style={styles.detailsSectionTitle}>Ordered Products</Text>
+                    </View>
+
                     <View style={styles.itemsList}>
                       {(item.items || []).map((orderItem, idx) => {
                         const imgUrl = getItemImageUrl(orderItem);
@@ -309,7 +363,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                                 {orderItem.name}
                               </Text>
                               <Text style={styles.itemCategory}>
-                                {isEgg ? '🥚' : '🥤'} {cat} {orderItem.packSize ? `• ${orderItem.packSize}` : ''}
+                                {cat} {orderItem.packSize ? `• ${orderItem.packSize}` : ''}
                               </Text>
                               <Text style={styles.itemQtyPrice}>
                                 {orderItem.quantity} {unitName}{orderItem.quantity > 1 ? 's' : ''} × {formatINR(orderItem.unitPrice)}
@@ -329,22 +383,30 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                     <View style={styles.addressBlock}>
                       <View style={styles.addressTitleRow}>
                         <Ionicons name="location-outline" size={16} color={colors.primary} />
-                        <Text style={styles.addressTitle}>Delivery Address</Text>
+                        <Text style={styles.addressTitle}>Delivery Location</Text>
                       </View>
 
-                      <Text style={styles.addressRecipient}>{customerDisplayName}</Text>
-                      {customerPhone ? (
-                        <Text style={styles.addressPhone}>📞 {customerPhone}</Text>
+                      <Text style={styles.addressRecipient}>{contactName}</Text>
+                      {contactPhone ? (
+                        <View style={styles.inlineInfoRow}>
+                          <Ionicons name="call-outline" size={13} color={colors.textSecondary} />
+                          <Text style={styles.addressPhone}>{contactPhone}</Text>
+                        </View>
                       ) : null}
+                      <Text style={styles.addressBody}>{addrLine1}</Text>
+                      {addrLine2 ? <Text style={styles.addressBody}>{addrLine2}</Text> : null}
                       <Text style={styles.addressBody}>
-                        {formattedAddress || 'Standard Warehouse / Store Address'}
+                        {[addrCity, addrState, addrPincode].filter(Boolean).join(', ')}
                       </Text>
                       {item.notes ? (
-                        <Text style={styles.addressNotes}>📝 Note: {item.notes}</Text>
+                        <View style={styles.notesBox}>
+                          <Ionicons name="document-text-outline" size={13} color="#92400E" />
+                          <Text style={styles.addressNotes}>Note: {item.notes}</Text>
+                        </View>
                       ) : null}
                     </View>
 
-                    {/* 3. FINANCIAL BREAKDOWN */}
+                    {/* 3. FINANCIAL PAYMENT BREAKDOWN (SEPARATED PAID AND DUE) */}
                     <View style={styles.priceBreakdown}>
                       <View style={styles.priceRow}>
                         <Text style={styles.priceLabel}>Items Subtotal</Text>
@@ -365,9 +427,30 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                         </View>
                       ) : null}
 
+                      <View style={styles.breakdownDivider} />
+
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceLabel}>Amount Paid</Text>
+                        <Text style={[styles.priceVal, { color: '#16A34A', fontWeight: '800' }]}>{formatINR(amountPaid)}</Text>
+                      </View>
+
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceLabel}>Amount Due</Text>
+                        <Text style={[styles.priceVal, { color: amountDue > 0 ? '#DC2626' : '#16A34A', fontWeight: '800' }]}>
+                          {formatINR(amountDue)}
+                        </Text>
+                      </View>
+
                       <View style={[styles.priceRow, styles.totalRow]}>
-                        <Text style={styles.totalLabel}>Total Paid / Due</Text>
+                        <Text style={styles.totalLabel}>Total Order Amount</Text>
                         <Text style={styles.totalVal}>{formatINR(item.totalAmount)}</Text>
+                      </View>
+
+                      <View style={styles.paymentStatusRow}>
+                        <Text style={styles.priceLabel}>Payment Status</Text>
+                        <View style={[styles.payBadge, { backgroundColor: payTone.bg, borderColor: payTone.border }]}>
+                          <Text style={[styles.payBadgeText, { color: payTone.text }]}>{payTone.label}</Text>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -376,7 +459,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                 {/* ACTIONS */}
                 <View style={styles.actionsColumn}>
                   {/* ADMIN STATUS ADVANCE BUTTON */}
-                  {(user?.role === 'seller' || user?.role === 'admin') && actionConfig ? (
+                  {isAdminOrSeller && actionConfig ? (
                     <AppButton
                       title={actionConfig.label}
                       icon={actionConfig.icon}
@@ -386,6 +469,18 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       onPress={() => handleUpdateStatus(item._id, actionConfig.nextStatus)}
                     />
                   ) : null}
+
+                  {/* ADMIN MARK AS PAID BUTTON */}
+                  {isAdminOrSeller && amountDue > 0 && (
+                    <Pressable
+                      style={styles.markPaidButton}
+                      disabled={updatingId === item._id}
+                      onPress={() => handleMarkPaid(item)}
+                    >
+                      <MaterialCommunityIcons name="credit-card-check-outline" size={17} color={colors.primary} />
+                      <Text style={styles.markPaidText}>Mark Full Payment as Paid ({formatINR(amountDue)})</Text>
+                    </Pressable>
+                  )}
 
                   {/* ORDER CHAT & SUPPORT BUTTON */}
                   <Pressable
@@ -450,19 +545,6 @@ const styles = StyleSheet.create({
     padding: 24,
     justifyContent: 'center'
   },
-  intro: {
-    marginBottom: 6
-  },
-  introTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '900'
-  },
-  introText: {
-    color: colors.textSecondary,
-    fontSize: 12.5,
-    marginTop: 2
-  },
   card: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
@@ -476,6 +558,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start'
+  },
+  headerBadgesCol: {
+    alignItems: 'flex-end',
+    gap: 4
   },
   orderIdRow: {
     flexDirection: 'row',
@@ -494,92 +580,114 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2
   },
+  buyerCompanyText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2
+  },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
     borderRadius: radius.pill,
     borderWidth: 1
   },
   statusText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '900',
-    letterSpacing: 0.4
+    letterSpacing: 0.3,
+    textTransform: 'uppercase'
+  },
+  payBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: radius.pill,
+    borderWidth: 1
+  },
+  payBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.3
   },
   orderStats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: colors.cardAlt,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: radius.md,
-    padding: 12,
     borderWidth: 1,
     borderColor: colors.border
   },
   amount: {
-    color: colors.primary,
-    fontSize: 18,
+    color: colors.navy,
+    fontSize: 16,
     fontWeight: '900'
   },
   meta: {
     color: colors.textSecondary,
     fontSize: 11.5,
-    fontWeight: '600',
-    marginTop: 2
+    marginTop: 1,
+    fontWeight: '600'
   },
   expandToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: colors.card,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: colors.infoSurface,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.infoBorder
   },
   expandToggleText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: colors.primary
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800'
   },
   expandedSection: {
-    gap: 12,
-    paddingTop: 4
+    gap: 12
   },
   divider: {
     height: 1,
     backgroundColor: colors.border,
-    marginVertical: 4
+    marginVertical: 2
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
   },
   detailsSectionTitle: {
-    color: colors.text,
+    color: colors.navy,
     fontSize: 13.5,
-    fontWeight: '900',
-    letterSpacing: 0.2
+    fontWeight: '900'
   },
   itemsList: {
-    backgroundColor: colors.cardAlt,
-    borderRadius: radius.md,
-    padding: 10,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: colors.border
+    gap: 8
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: colors.cardAlt,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
     gap: 10
   },
   itemThumbWrap: {
     width: 44,
     height: 44,
-    borderRadius: 8,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.infoSurface,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border
   },
   itemThumb: {
     width: '100%',
@@ -601,62 +709,74 @@ const styles = StyleSheet.create({
   },
   itemQtyPrice: {
     color: colors.textMuted,
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700'
   },
   itemSubtotal: {
-    color: colors.text,
+    color: colors.navy,
     fontSize: 13.5,
     fontWeight: '900'
   },
   addressBlock: {
-    backgroundColor: colors.infoSurface,
-    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
     padding: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.infoBorder,
+    borderColor: colors.border,
     gap: 4
   },
   addressTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     marginBottom: 2
   },
   addressTitle: {
-    color: colors.primary,
+    color: colors.navy,
     fontSize: 12.5,
-    fontWeight: '900'
+    fontWeight: '800'
   },
   addressRecipient: {
     color: colors.text,
     fontSize: 13,
     fontWeight: '800'
   },
+  inlineInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
   addressPhone: {
     color: colors.textSecondary,
     fontSize: 12,
-    fontWeight: '700'
+    fontWeight: '600'
   },
   addressBody: {
     color: colors.textSecondary,
     fontSize: 12,
-    lineHeight: 17
+    lineHeight: 16
+  },
+  notesBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FEF3C7',
+    padding: 6,
+    borderRadius: radius.sm,
+    marginTop: 4
   },
   addressNotes: {
-    color: '#854D0E',
+    color: '#92400E',
     fontSize: 11.5,
-    fontWeight: '600',
-    fontStyle: 'italic',
-    marginTop: 2
+    fontWeight: '700'
   },
   priceBreakdown: {
     backgroundColor: colors.cardAlt,
-    borderRadius: radius.md,
     padding: 12,
-    gap: 6,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    gap: 6
   },
   priceRow: {
     flexDirection: 'row',
@@ -675,43 +795,69 @@ const styles = StyleSheet.create({
   },
   freeDeliveryText: {
     color: colors.success,
-    fontWeight: '900'
+    fontWeight: '800'
   },
   discountVal: {
     color: colors.success,
     fontSize: 13,
     fontWeight: '800'
   },
+  breakdownDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 2
+  },
   totalRow: {
+    paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: 6,
-    marginTop: 2
+    borderTopColor: colors.border
   },
   totalLabel: {
-    color: colors.text,
+    color: colors.navy,
     fontSize: 14,
     fontWeight: '900'
   },
   totalVal: {
     color: colors.primary,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900'
+  },
+  paymentStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4
   },
   actionsColumn: {
     gap: 8,
     marginTop: 4
   },
+  markPaidButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.infoSurface,
+    borderWidth: 1,
+    borderColor: colors.infoBorder
+  },
+  markPaidText: {
+    color: colors.primary,
+    fontSize: 12.5,
+    fontWeight: '800'
+  },
   detailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
     backgroundColor: colors.cardAlt,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10
+    borderColor: colors.border
   },
   detailsText: {
     flex: 1,

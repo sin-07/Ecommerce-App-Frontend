@@ -17,11 +17,11 @@ type Pagination = { total: number; page: number; limit: number; totalPages: numb
 
 const filters: Array<{ key: Filter; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'] }> = [
   { key: 'all', label: 'All', icon: 'view-grid-outline' },
-  { key: 'Beverages', label: '🥤 Beverages', icon: 'cup-water' },
-  { key: 'Eggs', label: '🥚 Eggs', icon: 'egg-outline' },
-  { key: 'Existing Products', label: '🛒 Wholesale', icon: 'cube-outline' },
-  { key: 'low-stock', label: '⚠️ Low Stock', icon: 'alert-circle-outline' },
-  { key: 'featured', label: '⭐ Featured', icon: 'lightning-bolt-outline' }
+  { key: 'Beverages', label: 'Beverages', icon: 'cup-water' },
+  { key: 'Eggs', label: 'Eggs', icon: 'egg-outline' },
+  { key: 'Existing Products', label: 'Wholesale', icon: 'cube-outline' },
+  { key: 'low-stock', label: 'Low Stock', icon: 'alert-circle-outline' },
+  { key: 'featured', label: 'Featured', icon: 'lightning-bolt-outline' }
 ];
 
 const imageUrl = (raw?: string) => raw ? (raw.startsWith('http') ? raw : `${API_BASE_URL.replace('/api', '')}${raw}`) : '';

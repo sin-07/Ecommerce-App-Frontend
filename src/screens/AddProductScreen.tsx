@@ -100,7 +100,7 @@ export const AddProductScreen: React.FC<Props> = ({ navigation, route }) => {
         await api.post(endpoint, form, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
 
-      toast.success(isEditing ? 'Product updated successfully ✅' : 'Product added successfully ✅');
+      toast.success(isEditing ? 'Product updated successfully.' : 'Product added successfully.');
       navigation.goBack();
     } catch (error: any) {
       const validationErrors = error?.response?.data?.errors;

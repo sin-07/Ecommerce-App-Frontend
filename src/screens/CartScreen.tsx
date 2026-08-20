@@ -124,9 +124,13 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const { error } = useAppSelector((state) => state.orders);
 
   // Pre-fill customer details from profile
-  const [customerName, setCustomerName] = useState(user?.name || '');
+  const [contactName, setContactName] = useState(user?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
-  const [shippingAddress, setShippingAddress] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [pincode, setPincode] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
@@ -141,7 +145,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
 
   // Update pre-filled fields if user profile updates
   useEffect(() => {
-    if (user?.name && !customerName) setCustomerName(user.name);
+    if (user?.name && !contactName) setContactName(user.name);
     if (user?.phone && !phoneNumber) setPhoneNumber(user.phone);
   }, [user?.name, user?.phone]);
 
@@ -204,30 +208,77 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const handlePlaceOrder = async () => {
-    const trimmedName = customerName.trim();
-    const trimmedPhone = phoneNumber.trim();
-    const trimmedAddress = shippingAddress.trim();
+    const trimmedName = contactName.trim();
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const trimmedLine1 = addressLine1.trim();
+    const trimmedLine2 = addressLine2.trim();
+    const trimmedCity = city.trim();
+    const trimmedState = state.trim();
+    const cleanPin = pincode.replace(/[^0-9]/g, '');
 
     if (!trimmedName) {
-      Alert.alert('Missing Name', 'Please provide contact person name.');
+      Alert.alert('Missing Contact Name', 'Please enter the delivery contact person name.');
       return;
     }
-    if (!trimmedPhone) {
-      Alert.alert('Missing Phone', 'Please provide a valid delivery contact phone number.');
+    if (cleanPhone.length < 10) {
+      Alert.alert('Invalid Phone Number', 'Please enter a valid 10-digit Indian mobile number.');
       return;
     }
-    if (!trimmedAddress || trimmedAddress.length < 5) {
-      Alert.alert('Missing Address', 'Please provide complete delivery street address, city, and postal code.');
+    if (!trimmedLine1) {
+      Alert.alert('Missing Address Line 1', 'Please enter House / Shop / Street / Building details.');
       return;
     }
+    if (!trimmedCity) {
+      Alert.alert('Missing City', 'Please enter the delivery city.');
+      return;
+    }
+    if (!trimmedState) {
+      Alert.alert('Missing State', 'Please enter the delivery state.');
+      return;
+    }
+    if (cleanPin.length !== 6) {
+      Alert.alert('Invalid PIN Code', 'Please enter a valid 6-digit postal PIN code.');
+      return;
+    }
+
+    const formattedAddress = [
+      trimmedLine1,
+      trimmedLine2,
+      `${trimmedCity}, ${trimmedState} - ${cleanPin}`,
+      'India'
+    ]
+      .filter(Boolean)
+      .join(', ');
 
     setSubmittingOrder(true);
     try {
       const placed = await dispatch(
         placeOrder({
           customerName: trimmedName,
-          phoneNumber: trimmedPhone,
-          shippingAddress: trimmedAddress,
+          phoneNumber: cleanPhone,
+          shippingAddress: formattedAddress,
+          deliveryAddress: {
+            contactName: trimmedName,
+            phone: cleanPhone,
+            addressLine1: trimmedLine1,
+            addressLine2: trimmedLine2,
+            city: trimmedCity,
+            state: trimmedState,
+            pincode: cleanPin,
+            country: 'India',
+            notes: orderNotes.trim()
+          },
+          deliveryAddressDetails: {
+            contactName: trimmedName,
+            phone: cleanPhone,
+            addressLine1: trimmedLine1,
+            addressLine2: trimmedLine2,
+            city: trimmedCity,
+            state: trimmedState,
+            pincode: cleanPin,
+            country: 'India',
+            notes: orderNotes.trim()
+          },
           notes: orderNotes.trim()
         })
       ).unwrap();
@@ -236,7 +287,11 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
       setPlacedOrderRef(orderIdStr || 'CONFIRMED');
 
       dispatch(clearCart());
-      setShippingAddress('');
+      setAddressLine1('');
+      setAddressLine2('');
+      setCity('');
+      setState('');
+      setPincode('');
       setOrderNotes('');
 
       toast.show('Order placed successfully! A confirmation email has been sent.', 'success', 'Order Confirmed');
@@ -370,22 +425,22 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
               <MaterialCommunityIcons name="truck-delivery-outline" size={24} color={colors.primary} />
             </View>
 
-            {/* PRE-FILLED FULL NAME */}
+            {/* CONTACT NAME */}
             <View style={styles.formField}>
               <Text style={styles.inputLabel}>Contact Name *</Text>
               <View style={styles.inputWrap}>
                 <MaterialCommunityIcons name="account-outline" size={18} color={colors.textMuted} />
                 <NativeTextInput
                   style={styles.textInput}
-                  value={customerName}
-                  onChangeText={setCustomerName}
-                  placeholder="Enter full contact name"
+                  value={contactName}
+                  onChangeText={setContactName}
+                  placeholder="Enter contact person name (e.g. Vicky)"
                   placeholderTextColor={colors.textMuted}
                 />
               </View>
             </View>
 
-            {/* PRE-FILLED CONTACT PHONE */}
+            {/* CONTACT PHONE */}
             <View style={styles.formField}>
               <Text style={styles.inputLabel}>Phone Number *</Text>
               <View style={styles.inputWrap}>
@@ -395,31 +450,102 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
                   keyboardType="phone-pad"
-                  placeholder="Enter 10-digit mobile number"
+                  maxLength={10}
+                  placeholder="10-digit mobile number"
                   placeholderTextColor={colors.textMuted}
                 />
               </View>
             </View>
 
-            {/* SHIPPING ADDRESS */}
+            {/* ADDRESS LINE 1 */}
             <View style={styles.formField}>
-              <Text style={styles.inputLabel}>Delivery Address *</Text>
-              <View style={[styles.inputWrap, styles.multilineWrap]}>
-                <MaterialCommunityIcons
-                  name="map-marker-outline"
-                  size={18}
-                  color={colors.textMuted}
-                  style={{ alignSelf: 'flex-start', marginTop: 4 }}
-                />
+              <Text style={styles.inputLabel}>Address Line 1 *</Text>
+              <View style={styles.inputWrap}>
+                <MaterialCommunityIcons name="home-outline" size={18} color={colors.textMuted} />
                 <NativeTextInput
-                  style={[styles.textInput, styles.multilineInput]}
-                  value={shippingAddress}
-                  onChangeText={setShippingAddress}
-                  multiline
-                  numberOfLines={3}
-                  placeholder="Street address, unit, warehouse dock, city, state, postal code"
+                  style={styles.textInput}
+                  value={addressLine1}
+                  onChangeText={setAddressLine1}
+                  placeholder="House / Shop / Street / Building"
                   placeholderTextColor={colors.textMuted}
                 />
+              </View>
+            </View>
+
+            {/* ADDRESS LINE 2 */}
+            <View style={styles.formField}>
+              <Text style={styles.inputLabel}>Address Line 2 (Optional)</Text>
+              <View style={styles.inputWrap}>
+                <MaterialCommunityIcons name="map-marker-radius-outline" size={18} color={colors.textMuted} />
+                <NativeTextInput
+                  style={styles.textInput}
+                  value={addressLine2}
+                  onChangeText={setAddressLine2}
+                  placeholder="Area / Landmark / Warehouse dock"
+                  placeholderTextColor={colors.textMuted}
+                />
+              </View>
+            </View>
+
+            {/* CITY & STATE ROW */}
+            <View style={styles.rowFields}>
+              <View style={styles.halfField}>
+                <Text style={styles.inputLabel}>City *</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialCommunityIcons name="city" size={17} color={colors.textMuted} />
+                  <NativeTextInput
+                    style={styles.textInput}
+                    value={city}
+                    onChangeText={setCity}
+                    placeholder="City"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.halfField}>
+                <Text style={styles.inputLabel}>State *</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialCommunityIcons name="map-outline" size={17} color={colors.textMuted} />
+                  <NativeTextInput
+                    style={styles.textInput}
+                    value={state}
+                    onChangeText={setState}
+                    placeholder="State"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* PINCODE & COUNTRY ROW */}
+            <View style={styles.rowFields}>
+              <View style={styles.halfField}>
+                <Text style={styles.inputLabel}>Pincode (6 digits) *</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialCommunityIcons name="numeric" size={18} color={colors.textMuted} />
+                  <NativeTextInput
+                    style={styles.textInput}
+                    value={pincode}
+                    onChangeText={(val) => setPincode(val.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    placeholder="6-digit PIN"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.halfField}>
+                <Text style={styles.inputLabel}>Country</Text>
+                <View style={[styles.inputWrap, { backgroundColor: colors.cardAlt }]}>
+                  <MaterialCommunityIcons name="flag-outline" size={17} color={colors.textMuted} />
+                  <NativeTextInput
+                    style={[styles.textInput, { color: colors.textSecondary }]}
+                    value="India"
+                    editable={false}
+                  />
+                </View>
               </View>
             </View>
 
@@ -766,6 +892,14 @@ const styles = StyleSheet.create({
     ...shadows.card
   },
   formField: {
+    gap: 6
+  },
+  rowFields: {
+    flexDirection: 'row',
+    gap: 10
+  },
+  halfField: {
+    flex: 1,
     gap: 6
   },
   inputLabel: {

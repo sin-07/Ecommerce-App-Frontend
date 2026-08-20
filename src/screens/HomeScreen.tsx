@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Easing,
@@ -223,10 +224,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         if (current <= 0) {
           const step = Math.max(1, minOrderQuantity || 1);
           await dispatch(addCartItem({ productId, quantity: step })).unwrap();
-          toast.success(`Added ${step} ${target?.unit || 'unit'}(s) to cart 🛒`);
+          toast.success(`Added ${step} ${target?.unit || 'unit'}(s) to cart.`);
         } else {
           await dispatch(updateCartItem({ productId, quantity: current + 1 })).unwrap();
-          toast.success('Cart updated 🛒');
+          toast.success('Cart updated.');
         }
       } catch (cartError: any) {
         toast.error(cartError || 'Failed to update cart');
@@ -366,11 +367,15 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 onPress={() => handleSelectCategory(cat.id)}
                 style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
               >
-                <MaterialCommunityIcons
-                  name={cat.icon as any}
-                  size={18}
-                  color={isSelected ? colors.white : colors.primary}
-                />
+                {isSelected && loading ? (
+                  <ActivityIndicator size="small" color={colors.white} style={styles.tabLoader} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={cat.icon as any}
+                    size={18}
+                    color={isSelected ? colors.white : colors.primary}
+                  />
+                )}
                 <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
                   {cat.label}
                 </Text>
@@ -395,18 +400,32 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           onPress={() => handleSelectFilter('featured')}
           style={[styles.filterChip, selectedFilter === 'featured' && styles.filterChipActive]}
         >
-          <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
-            ⭐ Featured
-          </Text>
+          <View style={styles.chipInnerRow}>
+            <Feather
+              name="star"
+              size={12}
+              color={selectedFilter === 'featured' ? colors.white : colors.primary}
+            />
+            <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
+              Featured
+            </Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => handleSelectFilter('bestseller')}
           style={[styles.filterChip, selectedFilter === 'bestseller' && styles.filterChipActive]}
         >
-          <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
-            🔥 Bestsellers
-          </Text>
+          <View style={styles.chipInnerRow}>
+            <Feather
+              name="trending-up"
+              size={12}
+              color={selectedFilter === 'bestseller' ? colors.white : colors.primary}
+            />
+            <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
+              Bestsellers
+            </Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -925,6 +944,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     ...shadows.card
   },
+  tabLoader: {
+    transform: [{ scale: 0.75 }]
+  },
   categoryTabActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary
@@ -949,6 +971,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardAlt,
     borderWidth: 1,
     borderColor: colors.border
+  },
+  chipInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5
   },
   filterChipActive: {
     backgroundColor: colors.infoSurface,

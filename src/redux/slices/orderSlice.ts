@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { api } from '../../constants/api';
-import { Order } from '../../constants/types';
+import { DeliveryAddressDetails, Order } from '../../constants/types';
 
 type OrderState = {
   items: Order[];
@@ -14,9 +14,19 @@ const initialState: OrderState = {
   error: null
 };
 
+export interface PlaceOrderPayload {
+  customerName?: string;
+  phoneNumber?: string;
+  shippingAddress?: string;
+  deliveryAddress?: DeliveryAddressDetails;
+  deliveryAddressDetails?: DeliveryAddressDetails;
+  notes?: string;
+  amountPaid?: number;
+}
+
 export const placeOrder = createAsyncThunk(
   'orders/place',
-  async (payload: { customerName: string; phoneNumber: string; shippingAddress: string; notes?: string }, { rejectWithValue }) => {
+  async (payload: PlaceOrderPayload, { rejectWithValue }) => {
     try {
       const res = await api.post('/orders', payload);
       return res.data.data as Order;
@@ -55,9 +65,16 @@ export const fetchAdminOrders = createAsyncThunk('orders/fetchAdmin', async (_, 
 
 export const updateOrderStatus = createAsyncThunk(
   'orders/updateStatus',
-  async (payload: { id: string; status: string }, { rejectWithValue }) => {
+  async (
+    payload: { id: string; status: string; amountPaid?: number; paymentStatus?: string },
+    { rejectWithValue }
+  ) => {
     try {
-      const res = await api.patch(`/orders/${payload.id}/status`, { status: payload.status });
+      const res = await api.patch(`/orders/${payload.id}/status`, {
+        status: payload.status,
+        amountPaid: payload.amountPaid,
+        paymentStatus: payload.paymentStatus
+      });
       return res.data.data as Order;
     } catch (error: any) {
       return rejectWithValue(error?.response?.data?.message || 'Failed to update order');

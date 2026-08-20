@@ -39,7 +39,7 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
       const step = Math.max(1, product.minOrderQuantity || 1);
       try {
         await dispatch(addCartItem({ productId: product._id, quantity: step })).unwrap();
-        toast.success(`Added ${step} ${product.unit || 'unit'}(s) to cart 🛒`);
+        toast.success(`Added ${step} ${product.unit || 'unit'}(s) to cart.`);
       } catch (err: any) {
         toast.error(err || 'Failed to add to cart');
       }

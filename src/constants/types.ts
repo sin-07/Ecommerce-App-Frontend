@@ -58,13 +58,19 @@ export interface OrderItem {
 }
 
 export interface DeliveryAddressDetails {
-  fullName?: string;
+  contactName?: string;
   phone?: string;
-  street?: string;
+  addressLine1?: string;
+  addressLine2?: string;
   city?: string;
   state?: string;
-  postalCode?: string;
+  pincode?: string;
   country?: string;
+  notes?: string;
+  // Aliases for backward compatibility
+  fullName?: string;
+  street?: string;
+  postalCode?: string;
 }
 
 export interface Order {
@@ -77,8 +83,21 @@ export interface Order {
   deliveryFee?: number;
   discount?: number;
   totalAmount: number;
-  status: 'pending' | 'packed' | 'shipped' | 'delivered' | 'cancelled';
+  amountPaid?: number;
+  amountDue?: number;
+  paymentStatus?: 'DUE' | 'PARTIALLY_PAID' | 'PAID' | string;
+  status:
+    | 'pending'
+    | 'processing'
+    | 'confirmed'
+    | 'packed'
+    | 'shipped'
+    | 'dispatched'
+    | 'delivered'
+    | 'cancelled'
+    | string;
   shippingAddress: string;
+  deliveryAddress?: DeliveryAddressDetails;
   deliveryAddressDetails?: DeliveryAddressDetails;
   notes?: string;
   createdAt: string;

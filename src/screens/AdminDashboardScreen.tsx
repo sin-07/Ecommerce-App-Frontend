@@ -372,7 +372,12 @@ export const AdminDashboardScreen: React.FC<Props> = ({ navigation }) => {
                     </View>
                     <View style={styles.orderBottomRow}>
                       <Text style={styles.orderCases}>{totalCases} items ordered</Text>
-                      <Text style={styles.orderAmount}>{formatINR(order.totalAmount)}</Text>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.orderAmount}>{formatINR(order.totalAmount)}</Text>
+                        <Text style={styles.orderPaidDue}>
+                          Paid: {formatINR(order.amountPaid || 0)} • Due: {formatINR(order.amountDue !== undefined ? order.amountDue : Math.max(order.totalAmount - (order.amountPaid || 0), 0))}
+                        </Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -877,6 +882,12 @@ const styles = StyleSheet.create({
     color: colors.navy,
     fontSize: 15,
     fontWeight: '900'
+  },
+  orderPaidDue: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    fontWeight: '700',
+    marginTop: 2
   },
   teamSummaryCard: {
     flexDirection: 'row',

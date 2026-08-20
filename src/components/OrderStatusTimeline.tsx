@@ -1,34 +1,54 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { colors, radius } from '../constants/theme';
 
 const steps = [
-  { key: 'pending', label: 'Processing', icon: 'clipboard-text-clock-outline' },
-  { key: 'packed', label: 'Confirmed', icon: 'package-variant-closed' },
-  { key: 'shipped', label: 'Dispatched', icon: 'truck-fast-outline' },
+  { key: 'processing', label: 'Processing', icon: 'clipboard-text-clock-outline' },
+  { key: 'confirmed', label: 'Confirmed', icon: 'package-variant-closed' },
+  { key: 'dispatched', label: 'Dispatched', icon: 'truck-fast-outline' },
   { key: 'delivered', label: 'Delivered', icon: 'check-circle-outline' }
 ] as const;
 
+const normalizeStatusIndex = (status: string): number => {
+  const s = String(status || '').toLowerCase().trim();
+  if (s === 'delivered') return 3;
+  if (s === 'dispatched' || s === 'shipped') return 2;
+  if (s === 'confirmed' || s === 'packed') return 1;
+  if (s === 'processing' || s === 'pending') return 0;
+  return 0;
+};
+
 export const OrderStatusTimeline: React.FC<{
-  status: 'pending' | 'packed' | 'shipped' | 'delivered' | 'cancelled';
+  status:
+    | 'pending'
+    | 'processing'
+    | 'confirmed'
+    | 'packed'
+    | 'shipped'
+    | 'dispatched'
+    | 'delivered'
+    | 'cancelled'
+    | string;
 }> = ({ status }) => {
-  if (status === 'cancelled') {
+  const normStatus = String(status || '').toLowerCase().trim();
+
+  if (normStatus === 'cancelled') {
     return (
       <View style={styles.cancelledCard}>
         <View style={styles.cancelledHeader}>
-          <MaterialCommunityIcons name="close-circle" size={18} color={colors.danger} />
+          <Feather name="x-circle" size={18} color={colors.danger} />
           <Text style={styles.cancelledTitle}>Order Cancelled</Text>
         </View>
         <Text style={styles.cancelledText}>
-          This beverage order was cancelled. Please contact support if you need assistance.
+          This wholesale order was cancelled. Please contact customer support if you need assistance.
         </Text>
       </View>
     );
   }
 
-  const stepKeys = steps.map((s) => s.key);
-  const activeStepIndex = stepKeys.indexOf(status);
+  const activeStepIndex = normalizeStatusIndex(normStatus);
+  const isDelivered = normStatus === 'delivered';
 
   return (
     <View style={styles.container}>
@@ -41,7 +61,9 @@ export const OrderStatusTimeline: React.FC<{
             styles.trackFill,
             {
               width:
-                activeStepIndex <= 0
+                isDelivered
+                  ? '100%'
+                  : activeStepIndex === 0
                   ? '0%'
                   : activeStepIndex === 1
                   ? '33.3%'
@@ -55,9 +77,9 @@ export const OrderStatusTimeline: React.FC<{
 
       <View style={styles.stepsRow}>
         {steps.map((step, index) => {
-          const isCompleted = index < activeStepIndex;
-          const isCurrent = index === activeStepIndex;
-          const isFuture = index > activeStepIndex;
+          const isCompleted = isDelivered || index < activeStepIndex;
+          const isCurrent = !isDelivered && index === activeStepIndex;
+          const isFuture = !isDelivered && index > activeStepIndex;
 
           return (
             <View key={step.key} style={styles.stepItem}>
@@ -70,7 +92,7 @@ export const OrderStatusTimeline: React.FC<{
                 ]}
               >
                 {isCompleted ? (
-                  <MaterialCommunityIcons name="check" size={14} color={colors.white} />
+                  <Feather name="check" size={14} color={colors.white} />
                 ) : isCurrent ? (
                   <View style={styles.currentInnerDot} />
                 ) : (
@@ -101,7 +123,7 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     position: 'absolute',
-    top: 15,
+    top: 13,
     left: '12%',
     right: '12%',
     height: 3,
