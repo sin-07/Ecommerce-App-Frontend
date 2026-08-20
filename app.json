@@ -37,8 +37,7 @@
     "plugins": [
       "expo-asset",
       "expo-font",
-      "expo-notifications",
-      "expo-dev-client"
+      "expo-notifications"
     ],
     "extra": {
       "eas": {
