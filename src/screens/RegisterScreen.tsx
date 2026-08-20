@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 
 const logoSource = require('../../assets/Ap-Enterprises.jpeg');
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { OtpInput, OtpInputHandle } from '../components/OtpInput';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { api } from '../constants/api';
@@ -323,42 +324,43 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
-    >
-      <BeverageLoader
-        visible={submitting}
-        mode="auth"
-        title="AP Enterprises"
-        subtitle="Setting up your wholesale account..."
-      />
-
-      <ScrollView
-        ref={scrollViewRef}
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
       >
-        <Animated.View style={[styles.mainCard, { opacity: entrance }]}>
-          {/* BACK TO CATALOG */}
-          {navigation.canGoBack() ? (
-            <View style={styles.topNavRow}>
-              <Pressable
-                style={styles.backButton}
-                onPress={() => navigation.goBack()}
-                hitSlop={8}
-                accessibilityLabel="Back to catalog"
-              >
-                <MaterialCommunityIcons name="arrow-left" size={20} color={colors.primary} />
-                <Text style={styles.backButtonText}>Back to Catalog</Text>
-              </Pressable>
-            </View>
-          ) : null}
+        <BeverageLoader
+          visible={submitting}
+          mode="auth"
+          title="AP Enterprises"
+          subtitle="Setting up your wholesale account..."
+        />
 
-          {/* HEADER */}
-          <View style={styles.header}>
+        {/* TOP SAFE-AREA BAR / BACK BUTTON */}
+        {navigation.canGoBack() ? (
+          <View style={styles.topBar}>
+            <Pressable
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={8}
+              accessibilityLabel="Back to catalog"
+            >
+              <MaterialCommunityIcons name="arrow-left" size={18} color={colors.primary} />
+              <Text style={styles.backButtonText}>Back to Catalog</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View style={[styles.mainCard, { opacity: entrance }]}>
+            {/* HEADER */}
+            <View style={styles.header}>
             <View style={styles.brandIconWrap}>
               <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
             </View>
@@ -764,6 +766,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
+  </SafeAreaView>
   );
 };
 
@@ -772,9 +775,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg
   },
+  flex: {
+    flex: 1
+  },
+  topBar: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE'
+  },
+  backButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary
+  },
   scrollContainer: {
     paddingHorizontal: 18,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 40
   },
   mainCard: {
@@ -784,24 +813,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     ...shadows.card
-  },
-  topNavRow: {
-    marginBottom: 10,
-    alignSelf: 'flex-start'
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: radius.md,
-    backgroundColor: '#EFF6FF'
-  },
-  backButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.primary
   },
   header: {
     alignItems: 'center',

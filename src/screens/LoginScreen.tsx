@@ -151,6 +151,21 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       >
         <BeverageLoader visible={signingIn} mode="auth" title="AP Enterprises" subtitle="Verifying your wholesale credentials..." />
 
+        {/* TOP SAFE-AREA BAR / BACK BUTTON */}
+        {navigation.canGoBack() ? (
+          <View style={styles.topBar}>
+            <Pressable
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={8}
+              accessibilityLabel="Back to catalog"
+            >
+              <MaterialCommunityIcons name="arrow-left" size={18} color={colors.primary} />
+              <Text style={styles.backButtonText}>Back to Catalog</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -159,21 +174,6 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-        {/* BACK TO CATALOG */}
-        {navigation.canGoBack() ? (
-          <View style={styles.topNavRow}>
-            <Pressable
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-              hitSlop={8}
-              accessibilityLabel="Back to catalog"
-            >
-              <MaterialCommunityIcons name="arrow-left" size={20} color={colors.primary} />
-              <Text style={styles.backButtonText}>Back to Catalog</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
         {/* BRAND HEADER */}
         <View style={styles.brandHeader}>
           <View style={styles.logoBadge}>
@@ -354,20 +354,26 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 36
+    paddingTop: 8,
+    paddingBottom: 32
   },
-  topNavRow: {
-    marginBottom: 8,
-    alignSelf: 'flex-start'
+  topBar: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: radius.md,
-    backgroundColor: '#EFF6FF'
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE'
   },
   backButtonText: {
     fontSize: 13,

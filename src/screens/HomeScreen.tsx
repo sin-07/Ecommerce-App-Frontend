@@ -528,17 +528,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             </Text>
           </View>
           <View style={styles.topActionBtns}>
-            {!user ? (
-              <TouchableOpacity
-                style={styles.headerSignInPill}
-                onPress={() => navigation.navigate('Login')}
-                activeOpacity={0.85}
-                accessibilityLabel="Sign in to wholesale portal"
-              >
-                <MaterialCommunityIcons name="login" size={15} color={colors.white} />
-                <Text style={styles.headerSignInPillText}>Sign In</Text>
-              </TouchableOpacity>
-            ) : (
+            {user ? (
               <TouchableOpacity
                 style={styles.iconButton}
                 onPress={() => navigation.navigate('Wishlist')}
@@ -552,7 +542,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                   </View>
                 )}
               </TouchableOpacity>
-            )}
+            ) : null}
 
             <TouchableOpacity
               style={styles.iconButton}
@@ -1474,22 +1464,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     fontWeight: '700'
-  },
-  headerSignInPill: {
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    marginRight: 4,
-    ...shadows.sm
-  },
-  headerSignInPillText: {
-    color: colors.white,
-    fontSize: 12.5,
-    fontWeight: '800'
   },
   drawerDivider: {
     height: 1,
