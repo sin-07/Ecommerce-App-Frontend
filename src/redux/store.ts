@@ -4,6 +4,7 @@ import cartReducer from './slices/cartSlice';
 import chatReducer from './slices/chatSlice';
 import orderReducer from './slices/orderSlice';
 import productReducer from './slices/productSlice';
+import wishlistReducer from './slices/wishlistSlice';
 
 export const store = configureStore({
   reducer: {
@@ -11,7 +12,8 @@ export const store = configureStore({
     products: productReducer,
     cart: cartReducer,
     chat: chatReducer,
-    orders: orderReducer
+    orders: orderReducer,
+    wishlist: wishlistReducer
   }
 });
 

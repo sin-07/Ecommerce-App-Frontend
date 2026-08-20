@@ -16,6 +16,7 @@ import { ProductDetailsScreen } from '../screens/ProductDetailsScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { SellerDashboardScreen } from '../screens/SellerDashboardScreen';
 import { SplashScreen } from '../screens/SplashScreen';
+import { WishlistScreen } from '../screens/WishlistScreen';
 import { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -31,7 +32,7 @@ export const RootNavigator: React.FC = () => {
   const screenOptions = {
     headerStyle: { backgroundColor: colors.card },
     headerTintColor: colors.text,
-    headerTitleStyle: { fontWeight: '700' as const },
+    headerTitleStyle: { fontWeight: '800' as const },
     headerShadowVisible: false,
     animation: 'slide_from_right' as const,
     contentStyle: { backgroundColor: colors.bg }
@@ -45,13 +46,14 @@ export const RootNavigator: React.FC = () => {
         {!restoring && !user ? (
           <>
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+            <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Wholesale Account' }} />
           </>
         ) : null}
 
         {!restoring && user?.role === 'buyer' ? (
           <>
             <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
             <Stack.Screen name="Cart" component={CartScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
@@ -63,6 +65,7 @@ export const RootNavigator: React.FC = () => {
           <>
             <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} options={{ title: 'Seller Dashboard' }} />
             <Stack.Screen name="AddProduct" component={AddProductScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
@@ -75,6 +78,7 @@ export const RootNavigator: React.FC = () => {
             <Stack.Screen name="AdminProducts" component={AdminProductsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="AddProduct" component={AddProductScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} options={{ title: 'Edit Product' }} />
+            <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
           </>

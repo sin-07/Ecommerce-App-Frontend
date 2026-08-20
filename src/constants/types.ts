@@ -19,6 +19,11 @@ export interface Product {
   stock: number;
   minOrderQuantity: number;
   sku?: string;
+  unit?: string;
+  packSize?: string;
+  badge?: string;
+  isBestSeller?: boolean;
+  tags?: string[];
   isActive?: boolean;
   isFeatured?: boolean;
   pricingTiers?: Array<{

@@ -1,8 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { AppButton } from './AppButton';
-import { colors } from '../constants/theme';
+import { colors, radius } from '../constants/theme';
 
 export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading...' }) => (
   <View style={styles.center}>
@@ -11,9 +11,19 @@ export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading...'
   </View>
 );
 
-export const ErrorView: React.FC<{ message?: string }> = ({ message = 'Something went wrong.' }) => (
+export const ErrorView: React.FC<{ message?: string; onRetry?: () => void }> = ({
+  message = 'Something went wrong.',
+  onRetry
+}) => (
   <View style={styles.center}>
+    <MaterialCommunityIcons name="alert-circle-outline" size={36} color={colors.danger} />
     <Text style={[styles.label, styles.error]}>{message}</Text>
+    {onRetry ? (
+      <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.8}>
+        <Ionicons name="refresh" size={16} color={colors.white} />
+        <Text style={styles.retryBtnText}>Try Again</Text>
+      </TouchableOpacity>
+    ) : null}
   </View>
 );
 
@@ -36,17 +46,36 @@ export const EmptyState: React.FC<{
 
 const styles = StyleSheet.create({
   center: {
-    paddingVertical: 24,
-    alignItems: 'center'
+    paddingVertical: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
   },
   label: {
     color: colors.textMuted,
-    marginTop: 8,
-    fontSize: 14
+    marginTop: 4,
+    fontSize: 14,
+    textAlign: 'center'
   },
   error: {
     color: colors.danger,
-    textAlign: 'center'
+    textAlign: 'center',
+    fontWeight: '700'
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    marginTop: 6
+  },
+  retryBtnText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '800'
   },
   emptyCard: {
     alignItems: 'center',

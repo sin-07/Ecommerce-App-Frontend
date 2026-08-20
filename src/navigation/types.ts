@@ -4,7 +4,8 @@ export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   Register: undefined;
-  Home: undefined;
+  Home: { initialCategory?: string } | undefined;
+  Wishlist: undefined;
   ProductDetails: { productId: string; product?: Product };
   Cart: undefined;
   Orders: undefined;

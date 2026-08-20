@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { colors, radius } from '../constants/theme';
 
-export const ProductCardSkeleton: React.FC = React.memo(() => {
+export const ProductCardSkeleton: React.FC<{ compact?: boolean }> = React.memo(({ compact }) => {
   const opacity = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
@@ -18,8 +18,8 @@ export const ProductCardSkeleton: React.FC = React.memo(() => {
   }, [opacity]);
 
   return (
-    <Animated.View style={[styles.card, { opacity }]}> 
-      <View style={styles.image} />
+    <Animated.View style={[styles.card, compact && styles.compact, { opacity }]}> 
+      <View style={[styles.image, compact && { height: 110 }]} />
       <View style={styles.lineLg} />
       <View style={styles.lineMd} />
       <View style={styles.lineSm} />
@@ -41,6 +41,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: 12,
     gap: 10
+  },
+  compact: {
+    padding: 10,
+    gap: 8
   },
   image: {
     width: '100%',

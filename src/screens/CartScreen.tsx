@@ -42,29 +42,39 @@ type CartRowProps = {
 const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps) => {
   const imageUrl = resolveImageUrl(item.product.imageUrl);
   const moq = Math.max(1, item.product.minOrderQuantity || 1);
+  const unit = item.product.unit || 'unit';
   const line = getLinePricing(item.product, item.quantity);
 
   return (
     <View style={styles.itemCard}>
       <View style={styles.itemTop}>
         {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.itemImage} resizeMode="contain" />
+          <Image source={{ uri: imageUrl }} style={styles.itemImage} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <MaterialCommunityIcons name="bottle-soda-classic-outline" size={32} color={colors.primary} />
+            <MaterialCommunityIcons
+              name={item.product.category?.toLowerCase().includes('egg') ? 'egg-outline' : 'bottle-soda-classic-outline'}
+              size={32}
+              color={colors.primary}
+            />
           </View>
         )}
         <View style={styles.itemMetaWrap}>
-          <Text style={styles.itemCategory}>{item.product.category || 'Beverages'}</Text>
+          <View style={styles.categoryRow}>
+            <Text style={styles.itemCategory}>{item.product.category || 'General'}</Text>
+            {item.product.packSize ? (
+              <Text style={styles.packTag}>{item.product.packSize}</Text>
+            ) : null}
+          </View>
           <Text style={styles.itemName} numberOfLines={2}>
             {item.product.name}
           </Text>
           <Text style={styles.itemMeta}>
-            MOQ {moq} cases • ${line.unitPrice.toFixed(2)} / case
+            ₹{Number(line.unitPrice).toFixed(2)} / {unit} • Min: {moq}
           </Text>
-          <Text style={styles.lineTotal}>${line.subtotal.toFixed(2)}</Text>
+          <Text style={styles.lineTotal}>₹{Number(line.subtotal).toFixed(2)}</Text>
           {line.savings > 0 ? (
-            <Text style={styles.savings}>Bulk savings: -${line.savings.toFixed(2)}</Text>
+            <Text style={styles.savings}>Bulk savings: -₹{Number(line.savings).toFixed(2)}</Text>
           ) : null}
         </View>
         <Pressable
@@ -78,7 +88,7 @@ const CartRow = memo(({ item, onIncrement, onDecrement, onRemove }: CartRowProps
       </View>
 
       <View style={styles.qtyRow}>
-        <Text style={styles.qtyLabel}>Cases Ordered</Text>
+        <Text style={styles.qtyLabel}>Quantity ({unit}s)</Text>
         <View style={styles.qtyControls}>
           <Pressable
             accessibilityLabel="Decrease quantity"
@@ -330,27 +340,32 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total Cases:</Text>
-              <Text style={styles.summaryValue}>{summary.totalCases} cases</Text>
+              <Text style={styles.summaryLabel}>Total Quantity:</Text>
+              <Text style={styles.summaryValue}>{summary.totalCases} items</Text>
             </View>
 
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Base Subtotal:</Text>
-              <Text style={styles.summaryValue}>${(summary.subtotal + summary.savings).toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>₹{(summary.subtotal + summary.savings).toFixed(2)}</Text>
             </View>
 
             {summary.savings > 0 ? (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tiered Bulk Discount:</Text>
-                <Text style={styles.savingsText}>-${summary.savings.toFixed(2)}</Text>
+                <Text style={styles.summaryLabel}>Wholesale Discount:</Text>
+                <Text style={styles.savingsText}>-₹{summary.savings.toFixed(2)}</Text>
               </View>
             ) : null}
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>B2B Delivery Fee:</Text>
+              <Text style={[styles.summaryValue, { color: '#16A34A', fontWeight: '800' }]}>FREE</Text>
+            </View>
 
             <View style={styles.divider} />
 
             <View style={styles.summaryRow}>
-              <Text style={styles.grandLabel}>Total Amount:</Text>
-              <Text style={styles.grandValue}>${summary.subtotal.toFixed(2)}</Text>
+              <Text style={styles.grandLabel}>Total Order Amount:</Text>
+              <Text style={styles.grandValue}>₹{summary.subtotal.toFixed(2)}</Text>
             </View>
           </View>
 
@@ -444,7 +459,7 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             >
               <MaterialCommunityIcons name="truck-fast" size={20} color={colors.white} />
               <Text style={styles.checkoutButtonText}>
-                {submittingOrder ? 'Processing Order…' : `Place Bulk Order  •  $${summary.subtotal.toFixed(2)}`}
+                {submittingOrder ? 'Processing Order…' : `Place Wholesale Order  •  ₹${summary.subtotal.toFixed(2)}`}
               </Text>
             </Pressable>
 
@@ -600,6 +615,20 @@ const styles = StyleSheet.create({
   itemMetaWrap: {
     flex: 1,
     gap: 2
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  packTag: {
+    fontSize: 10.5,
+    color: '#92400E',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    fontWeight: '700'
   },
   itemCategory: {
     color: colors.primary,

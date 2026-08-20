@@ -2,10 +2,16 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { api } from '../../constants/api';
 import { Product } from '../../constants/types';
 
+export interface CategoryInfo {
+  name: string;
+  count: number;
+}
+
 type ProductState = {
   items: Product[];
   selected: Product | null;
   sellerItems: Product[];
+  categories: CategoryInfo[];
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
@@ -17,6 +23,7 @@ const initialState: ProductState = {
   items: [],
   selected: null,
   sellerItems: [],
+  categories: [],
   loading: false,
   loadingMore: false,
   error: null,
@@ -27,7 +34,15 @@ const initialState: ProductState = {
 export const fetchProducts = createAsyncThunk(
   'products/fetchProducts',
   async (
-    params: { page?: number; limit?: number; search?: string; category?: string } = {},
+    params: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      category?: string;
+      isFeatured?: boolean;
+      isBestSeller?: boolean;
+      sortBy?: string;
+    } = {},
     { rejectWithValue }
   ) => {
     try {
@@ -39,23 +54,41 @@ export const fetchProducts = createAsyncThunk(
   }
 );
 
-export const fetchProductById = createAsyncThunk('products/fetchById', async (id: string, { rejectWithValue }) => {
-  try {
-    const res = await api.get(`/products/${id}`);
-    return res.data.data as Product;
-  } catch (error: any) {
-    return rejectWithValue(error?.response?.data?.message || 'Failed to fetch product');
+export const fetchCategories = createAsyncThunk(
+  'products/fetchCategories',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await api.get('/products/categories');
+      return res.data.data as CategoryInfo[];
+    } catch (error: any) {
+      return rejectWithValue(error?.response?.data?.message || 'Failed to fetch categories');
+    }
   }
-});
+);
 
-export const fetchSellerProducts = createAsyncThunk('products/fetchSeller', async (_, { rejectWithValue }) => {
-  try {
-    const res = await api.get('/products/seller/me');
-    return res.data.data as Product[];
-  } catch (error: any) {
-    return rejectWithValue(error?.response?.data?.message || 'Failed to fetch seller products');
+export const fetchProductById = createAsyncThunk(
+  'products/fetchById',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const res = await api.get(`/products/${id}`);
+      return res.data.data as Product;
+    } catch (error: any) {
+      return rejectWithValue(error?.response?.data?.message || 'Failed to fetch product');
+    }
   }
-});
+);
+
+export const fetchSellerProducts = createAsyncThunk(
+  'products/fetchSeller',
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await api.get('/products/seller/me');
+      return res.data.data as Product[];
+    } catch (error: any) {
+      return rejectWithValue(error?.response?.data?.message || 'Failed to fetch seller products');
+    }
+  }
+);
 
 const productSlice = createSlice({
   name: 'products',
@@ -81,7 +114,6 @@ const productSlice = createSlice({
         state.loadingMore = false;
         const requestedPage = Number(action.meta.arg?.page || action.payload.pagination.page || 1);
         if (requestedPage > 1) {
-          // Deduplicate: filter out items already in state (guards against race conditions on rapid scroll)
           const existingIds = new Set(state.items.map((p) => p._id));
           const newItems = (action.payload.data as Product[]).filter((p) => !existingIds.has(p._id));
           state.items = [...state.items, ...newItems];
@@ -95,6 +127,9 @@ const productSlice = createSlice({
         state.loading = false;
         state.loadingMore = false;
         state.error = action.payload as string;
+      })
+      .addCase(fetchCategories.fulfilled, (state, action) => {
+        state.categories = action.payload;
       })
       .addCase(fetchProductById.pending, (state) => {
         state.loading = true;
