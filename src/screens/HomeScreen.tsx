@@ -4,11 +4,13 @@ import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Dimensions,
   Easing,
   FlatList,
   Image,
   LayoutAnimation,
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -38,7 +40,7 @@ import { loadWishlist } from '../redux/slices/wishlistSlice';
 import { toast } from '../utils/toast';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const DRAWER_WIDTH = Math.min(300, SCREEN_WIDTH * 0.78);
+const DRAWER_WIDTH = Math.min(320, SCREEN_WIDTH * 0.82);
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -109,6 +111,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const cartScale = useRef(new Animated.Value(1)).current;
+  const isClosingRef = useRef(false);
 
   // Master execution function for product data fetching & caching
   const executeProductFetch = useCallback(
@@ -194,42 +197,120 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     dispatch(loadWishlist());
   }, [dispatch]);
 
-  // Drawer Open / Close Animation
-  const openDrawer = () => {
+  // Smooth "Lazy" Drawer Open Animation
+  const openDrawer = useCallback(() => {
+    isClosingRef.current = false;
     setDrawerOpen(true);
+    drawerAnim.setValue(-DRAWER_WIDTH);
+    overlayAnim.setValue(0);
     Animated.parallel([
       Animated.timing(drawerAnim, {
         toValue: 0,
-        duration: 260,
+        duration: 340,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true
       }),
       Animated.timing(overlayAnim, {
         toValue: 1,
-        duration: 260,
+        duration: 300,
+        easing: Easing.out(Easing.quad),
         useNativeDriver: true
       })
     ]).start();
-  };
+  }, [drawerAnim, overlayAnim]);
 
-  const closeDrawer = (callback?: () => void) => {
-    Animated.parallel([
-      Animated.timing(drawerAnim, {
-        toValue: -DRAWER_WIDTH,
-        duration: 220,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true
+  // Smooth "Lazy" Drawer Close Animation
+  const closeDrawer = useCallback(
+    (callback?: () => void) => {
+      if (isClosingRef.current) return;
+      isClosingRef.current = true;
+      Animated.parallel([
+        Animated.timing(drawerAnim, {
+          toValue: -DRAWER_WIDTH,
+          duration: 280,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true
+        }),
+        Animated.timing(overlayAnim, {
+          toValue: 0,
+          duration: 240,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true
+        })
+      ]).start(({ finished }) => {
+        isClosingRef.current = false;
+        if (finished) {
+          setDrawerOpen(false);
+          if (callback) callback();
+        }
+      });
+    },
+    [drawerAnim, overlayAnim]
+  );
+
+  // Android Back Button listener: smoothly closes drawer first if open
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const backAction = () => {
+      closeDrawer();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => subscription.remove();
+  }, [drawerOpen, closeDrawer]);
+
+  // Gesture PanResponder for swiping drawer to close
+  const drawerPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return gestureState.dx < -10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dx < 0) {
+            drawerAnim.setValue(gestureState.dx);
+            const progress = Math.max(0, 1 + gestureState.dx / DRAWER_WIDTH);
+            overlayAnim.setValue(progress);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx < -60 || gestureState.vx < -0.5) {
+            closeDrawer();
+          } else {
+            Animated.parallel([
+              Animated.spring(drawerAnim, {
+                toValue: 0,
+                friction: 6,
+                tension: 40,
+                useNativeDriver: true
+              }),
+              Animated.timing(overlayAnim, {
+                toValue: 1,
+                duration: 150,
+                useNativeDriver: true
+              })
+            ]).start();
+          }
+        }
       }),
-      Animated.timing(overlayAnim, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true
-      })
-    ]).start(() => {
-      setDrawerOpen(false);
-      if (callback) callback();
-    });
-  };
+    [closeDrawer, drawerAnim, overlayAnim]
+  );
+
+  // Edge Swipe PanResponder on screen container for opening from left edge
+  const edgePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return !drawerOpen && gestureState.x0 < 28 && gestureState.dx > 18 && Math.abs(gestureState.dy) < 30;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx > 25) {
+            openDrawer();
+          }
+        }
+      }),
+    [drawerOpen, openDrawer]
+  );
 
   // Debounced search effect
   useEffect(() => {
@@ -407,11 +488,15 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
             <TouchableOpacity
               style={styles.iconButton}
-              onPress={openDrawer}
+              onPress={drawerOpen ? () => closeDrawer() : openDrawer}
               hitSlop={6}
               accessibilityLabel="Open sidebar menu"
             >
-              <MaterialCommunityIcons name="menu" size={22} color={colors.text} />
+              <MaterialCommunityIcons
+                name={drawerOpen ? 'close' : 'menu'}
+                size={22}
+                color={colors.text}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -569,14 +654,17 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       selectedFilter,
       isCategoryLoading,
       items.length,
+      drawerOpen,
       handleSelectCategory,
       handleSelectFilter,
-      executeProductFetch
+      executeProductFetch,
+      openDrawer,
+      closeDrawer
     ]
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} {...edgePanResponder.panHandlers}>
       <FlatList
         data={isCategoryLoading ? [] : items}
         keyExtractor={(item) => item._id}
@@ -659,6 +747,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
           {/* Sliding Panel */}
           <Animated.View
+            {...drawerPanResponder.panHandlers}
             style={[
               styles.drawerPanel,
               {
@@ -1112,7 +1201,7 @@ const styles = StyleSheet.create({
   },
   drawerBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)'
+    backgroundColor: 'rgba(15, 23, 42, 0.52)'
   },
   drawerPanel: {
     position: 'absolute',
