@@ -24,12 +24,21 @@ export interface PlaceOrderPayload {
   amountPaid?: number;
 }
 
+const normalizeOrders = (res: any): Order[] => {
+  if (!res) return [];
+  const payload = res?.data?.data ?? res?.data?.orders ?? res?.data ?? res;
+  if (Array.isArray(payload)) return payload as Order[];
+  if (payload && Array.isArray(payload.data)) return payload.data as Order[];
+  if (payload && Array.isArray(payload.orders)) return payload.orders as Order[];
+  return [];
+};
+
 export const placeOrder = createAsyncThunk(
   'orders/place',
   async (payload: PlaceOrderPayload, { rejectWithValue }) => {
     try {
       const res = await api.post('/orders', payload);
-      return res.data.data as Order;
+      return (res.data?.data || res.data) as Order;
     } catch (error: any) {
       return rejectWithValue(error?.response?.data?.message || 'Failed to place order');
     }
@@ -39,7 +48,7 @@ export const placeOrder = createAsyncThunk(
 export const fetchBuyerOrders = createAsyncThunk('orders/fetchBuyer', async (_, { rejectWithValue }) => {
   try {
     const res = await api.get('/orders/buyer');
-    return res.data.data as Order[];
+    return normalizeOrders(res);
   } catch (error: any) {
     return rejectWithValue(error?.response?.data?.message || 'Failed to fetch orders');
   }
@@ -48,7 +57,7 @@ export const fetchBuyerOrders = createAsyncThunk('orders/fetchBuyer', async (_, 
 export const fetchSellerOrders = createAsyncThunk('orders/fetchSeller', async (_, { rejectWithValue }) => {
   try {
     const res = await api.get('/orders/seller');
-    return res.data.data as Order[];
+    return normalizeOrders(res);
   } catch (error: any) {
     return rejectWithValue(error?.response?.data?.message || 'Failed to fetch seller orders');
   }
@@ -57,7 +66,7 @@ export const fetchSellerOrders = createAsyncThunk('orders/fetchSeller', async (_
 export const fetchAdminOrders = createAsyncThunk('orders/fetchAdmin', async (_, { rejectWithValue }) => {
   try {
     const res = await api.get('/orders/admin');
-    return res.data.data as Order[];
+    return normalizeOrders(res);
   } catch (error: any) {
     return rejectWithValue(error?.response?.data?.message || 'Failed to fetch admin orders');
   }
@@ -75,7 +84,7 @@ export const updateOrderStatus = createAsyncThunk(
         amountPaid: payload.amountPaid,
         paymentStatus: payload.paymentStatus
       });
-      return res.data.data as Order;
+      return (res.data?.data || res.data) as Order;
     } catch (error: any) {
       return rejectWithValue(error?.response?.data?.message || 'Failed to update order');
     }
@@ -85,11 +94,19 @@ export const updateOrderStatus = createAsyncThunk(
 const orderSlice = createSlice({
   name: 'orders',
   initialState,
-  reducers: {},
+  reducers: {
+    clearOrders: (state) => {
+      state.items = [];
+      state.loading = false;
+      state.error = null;
+    }
+  },
   extraReducers: (builder) => {
     builder
+      // PLACE ORDER
       .addCase(placeOrder.pending, (state) => {
         state.loading = true;
+        state.error = null;
       })
       .addCase(placeOrder.fulfilled, (state, action) => {
         state.loading = false;
@@ -99,15 +116,53 @@ const orderSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
+
+      // FETCH BUYER ORDERS
+      .addCase(fetchBuyerOrders.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchBuyerOrders.fulfilled, (state, action) => {
+        state.loading = false;
         state.items = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchBuyerOrders.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // FETCH SELLER ORDERS
+      .addCase(fetchSellerOrders.pending, (state) => {
+        state.loading = true;
+        state.error = null;
       })
       .addCase(fetchSellerOrders.fulfilled, (state, action) => {
+        state.loading = false;
         state.items = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchSellerOrders.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // FETCH ADMIN ORDERS
+      .addCase(fetchAdminOrders.pending, (state) => {
+        state.loading = true;
+        state.error = null;
       })
       .addCase(fetchAdminOrders.fulfilled, (state, action) => {
+        state.loading = false;
         state.items = action.payload;
+        state.error = null;
       })
+      .addCase(fetchAdminOrders.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // UPDATE ORDER STATUS
       .addCase(updateOrderStatus.pending, (state, action) => {
         const { id, status } = action.meta.arg;
         const order = state.items.find((item) => item._id === id);
@@ -124,4 +179,5 @@ const orderSlice = createSlice({
   }
 });
 
+export const { clearOrders } = orderSlice.actions;
 export default orderSlice.reducer;

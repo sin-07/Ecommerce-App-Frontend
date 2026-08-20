@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -120,14 +120,46 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const { user } = useAppSelector((state) => state.auth);
   const { items, loading, error } = useAppSelector((state) => state.orders);
+
+  const [isInitialLoading, setIsInitialLoading] = useState(items.length === 0);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
 
+  const loadOrders = useCallback(
+    async (isPullToRefresh = false) => {
+      if (isPullToRefresh) {
+        setRefreshing(true);
+      } else if (items.length === 0) {
+        setIsInitialLoading(true);
+      }
+      setFetchError(null);
+
+      try {
+        if (user?.role === 'buyer') {
+          await dispatch(fetchBuyerOrders()).unwrap();
+        } else if (user?.role === 'seller') {
+          await dispatch(fetchSellerOrders()).unwrap();
+        } else if (user?.role === 'admin') {
+          await dispatch(fetchAdminOrders()).unwrap();
+        } else {
+          await dispatch(fetchBuyerOrders()).unwrap();
+        }
+      } catch (err: any) {
+        const errorMsg = typeof err === 'string' ? err : err?.message || 'Unable to load wholesale orders.';
+        setFetchError(errorMsg);
+      } finally {
+        setIsInitialLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [dispatch, user?.role, items.length]
+  );
+
   useEffect(() => {
-    if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
-    if (user?.role === 'seller') dispatch(fetchSellerOrders());
-    if (user?.role === 'admin') dispatch(fetchAdminOrders());
-  }, [dispatch, user?.role]);
+    loadOrders(false);
+  }, [loadOrders]);
 
   const toggleExpand = (orderId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -188,19 +220,15 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
-  const onRefresh = () => {
-    if (user?.role === 'buyer') dispatch(fetchBuyerOrders());
-    if (user?.role === 'seller') dispatch(fetchSellerOrders());
-    if (user?.role === 'admin') dispatch(fetchAdminOrders());
-  };
-
   const isAdminOrSeller = user?.role === 'admin' || user?.role === 'seller';
+  const showSkeleton = isInitialLoading || (loading && items.length === 0);
+  const activeError = fetchError || error;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {header}
 
-      {loading && !items.length ? (
+      {showSkeleton ? (
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 20) }]}
@@ -209,10 +237,10 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           <OrderCardSkeleton />
           <OrderCardSkeleton />
         </ScrollView>
-      ) : error && !items.length ? (
+      ) : activeError && !items.length ? (
         <ErrorView
-          message={error}
-          onRetry={onRefresh}
+          message={activeError}
+          onRetry={() => loadOrders(false)}
         />
       ) : !items.length ? (
         <View style={styles.emptyWrap}>
@@ -234,8 +262,8 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           keyExtractor={(item) => item._id}
           refreshControl={
             <RefreshControl
-              refreshing={loading}
-              onRefresh={onRefresh}
+              refreshing={refreshing || loading}
+              onRefresh={() => loadOrders(true)}
               tintColor={colors.primary}
             />
           }
