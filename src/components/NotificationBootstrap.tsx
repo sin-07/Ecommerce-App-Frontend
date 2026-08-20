@@ -17,9 +17,13 @@ export const NotificationBootstrap: React.FC = () => {
 
     hasRegisteredRef.current = true;
     void (async () => {
-      const expoPushToken = await registerForPushNotificationsAsync();
-      if (expoPushToken) {
-        await dispatch(registerPushToken({ expoPushToken })).unwrap();
+      try {
+        const expoPushToken = await registerForPushNotificationsAsync();
+        if (expoPushToken) {
+          await dispatch(registerPushToken({ expoPushToken })).unwrap();
+        }
+      } catch (err: any) {
+        console.warn('[NotificationBootstrap] Push token registration skipped:', err?.message || err);
       }
     })();
   }, [dispatch, token, user]);

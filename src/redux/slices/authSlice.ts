@@ -28,19 +28,32 @@ const setTokenHeader = (token: string | null) => {
 };
 
 export const restoreSession = createAsyncThunk('auth/restoreSession', async () => {
-  const raw = await AsyncStorage.getItem('auth_session');
-  if (!raw) return null;
-
-  const session = JSON.parse(raw) as { token: string; user: User };
-  setTokenHeader(session.token);
   try {
-    const response = await api.get('/auth/me');
-    const refreshed = { token: session.token, user: response.data.data as User };
-    await AsyncStorage.setItem('auth_session', JSON.stringify(refreshed));
-    return refreshed;
+    const raw = await AsyncStorage.getItem('auth_session');
+    if (!raw) return null;
+
+    let session: { token: string; user: User } | null = null;
+    try {
+      session = JSON.parse(raw) as { token: string; user: User };
+    } catch {
+      await AsyncStorage.removeItem('auth_session');
+      return null;
+    }
+
+    if (!session || !session.token) return null;
+
+    setTokenHeader(session.token);
+    try {
+      const response = await api.get('/auth/me');
+      const refreshed = { token: session.token, user: response.data.data as User };
+      await AsyncStorage.setItem('auth_session', JSON.stringify(refreshed));
+      return refreshed;
+    } catch {
+      await AsyncStorage.removeItem('auth_session');
+      setTokenHeader(null);
+      return null;
+    }
   } catch {
-    await AsyncStorage.removeItem('auth_session');
-    setTokenHeader(null);
     return null;
   }
 });

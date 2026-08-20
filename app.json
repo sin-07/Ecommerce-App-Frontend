@@ -4,10 +4,10 @@
     "slug": "ap-enterprises",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/Ap-Enterprises.jpeg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/Ap-Enterprises.jpeg",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#fffdeb"
     },
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/Ap-Enterprises.jpeg",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#fffdeb"
       },
       "package": "com.apenterprises.b2b",
@@ -32,7 +32,7 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/Ap-Enterprises.jpeg"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-asset",
