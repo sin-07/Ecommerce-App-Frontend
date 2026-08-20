@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Dimensions,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Platform,
+  Easing,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -17,22 +15,22 @@ import { colors, radius, shadows } from '../constants/theme';
 
 export type PromoSlide = {
   id: string;
+  tag: string;
   title: string;
   subtitle: string;
-  tag: string;
-  buttonLabel?: string;
+  buttonLabel: string;
   bg: string;
   accent: string;
-  category?: string;
-  icon?: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  category: string;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 };
 
-export const DEFAULT_PROMO_SLIDES: PromoSlide[] = [
+export const PROMO_SLIDES: PromoSlide[] = [
   {
-    id: 'bev',
-    title: 'Chilled Beverages Wholesale',
-    subtitle: 'Coca-Cola, Pepsi, Sprite, Red Bull and more',
+    id: 'slide-beverages',
     tag: 'DIRECT FACTORY SUPPLY',
+    title: 'Chilled Beverages Wholesale',
+    subtitle: 'Coca-Cola, Pepsi, Sprite, energy drinks and more.',
     buttonLabel: 'Explore Beverages',
     bg: '#0B1220',
     accent: '#38BDF8',
@@ -40,10 +38,10 @@ export const DEFAULT_PROMO_SLIDES: PromoSlide[] = [
     icon: 'cup-water'
   },
   {
-    id: 'egg',
+    id: 'slide-eggs',
+    tag: 'FARM FRESH SUPPLY',
     title: 'Fresh Farm Eggs',
-    subtitle: 'Grade-A eggs in trays and bulk packs',
-    tag: '100% FARM FRESH',
+    subtitle: 'Quality eggs available in packs, trays and bulk quantities.',
     buttonLabel: 'Explore Eggs',
     bg: '#1C1308',
     accent: '#F59E0B',
@@ -51,10 +49,10 @@ export const DEFAULT_PROMO_SLIDES: PromoSlide[] = [
     icon: 'egg-outline'
   },
   {
-    id: 'wholesale',
-    title: 'Bulk Supplies for Businesses',
-    subtitle: 'Commercial wholesale products at competitive pricing',
-    tag: 'B2B WHOLESALE',
+    id: 'slide-wholesale',
+    tag: 'B2B WHOLESALE SUPPLY',
+    title: 'Everything your business needs in bulk.',
+    subtitle: 'Competitive wholesale pricing for commercial buyers.',
     buttonLabel: 'Explore Wholesale',
     bg: '#0F172A',
     accent: '#818CF8',
@@ -62,11 +60,11 @@ export const DEFAULT_PROMO_SLIDES: PromoSlide[] = [
     icon: 'cube-outline'
   },
   {
-    id: 'fast',
-    title: 'Same-Day Bulk Dispatch',
-    subtitle: 'Fast fulfillment for eligible wholesale orders',
-    tag: 'EXPRESS LOGISTICS',
-    buttonLabel: 'Explore Supply',
+    id: 'slide-logistics',
+    tag: 'FAST BUSINESS DELIVERY',
+    title: 'Reliable Bulk Dispatch',
+    subtitle: 'Smooth fulfillment for eligible wholesale orders.',
+    buttonLabel: 'View Products',
     bg: '#062E25',
     accent: '#34D399',
     category: '',
@@ -80,342 +78,349 @@ type Props = {
   autoSlideInterval?: number;
 };
 
-const AUTO_SLIDE_DEFAULT = 4500;
+const AUTO_SLIDE_DEFAULT = 4800;
+const TRANSITION_DURATION = 520;
 
-const PromoBannerCarouselBase: React.FC<Props> = ({
-  slides = DEFAULT_PROMO_SLIDES,
+export const PromoBannerCarousel: React.FC<Props> = React.memo(({
+  slides = PROMO_SLIDES,
   onSelectCategory,
   autoSlideInterval = AUTO_SLIDE_DEFAULT
 }) => {
   const { width: windowWidth } = useWindowDimensions();
   const cardWidth = useMemo(() => windowWidth - 32, [windowWidth]);
 
-  // Infinite Virtual Slides: [Last, Slide0, Slide1, Slide2, First]
-  const extendedSlides = useMemo(() => {
-    if (slides.length <= 1) return slides;
-    return [slides[slides.length - 1], ...slides, slides[0]];
-  }, [slides]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [targetIndex, setTargetIndex] = useState<number | null>(null);
+  const [direction, setDirection] = useState<'next' | 'prev'>('next');
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
-  const [activeIndex, setActiveIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(cardWidth)).current;
-  const flatListRef = useRef<Animated.FlatList<any> | null>(null);
-  const currentIndexRef = useRef(1); // starts at index 1 (Slide0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Transition animation value: 0 -> 1
+  const transitionAnim = useRef(new Animated.Value(0)).current;
+  const isTransitioningRef = useRef(false);
+  const currentIndexRef = useRef(0);
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInteractingRef = useRef(false);
 
-  // Initialize scroll position at first real slide (index 1)
-  const initialScrollDone = useRef(false);
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
 
-  // Auto-scroll controller
-  const startAutoScroll = useCallback(() => {
-    stopAutoScroll();
-    if (slides.length <= 1) return;
-
-    timerRef.current = setTimeout(() => {
-      if (isInteractingRef.current) return;
-      const nextIndex = currentIndexRef.current + 1;
-      flatListRef.current?.scrollToOffset({
-        offset: nextIndex * cardWidth,
-        animated: true
-      });
-      currentIndexRef.current = nextIndex;
-    }, autoSlideInterval);
-  }, [cardWidth, autoSlideInterval, slides.length]);
-
-  const stopAutoScroll = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const stopAutoPlay = useCallback(() => {
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
     }
   }, []);
 
+  const goToSlide = useCallback(
+    (nextIdx: number, dir: 'next' | 'prev' = 'next') => {
+      if (isTransitioningRef.current || nextIdx === currentIndexRef.current) return;
+      if (nextIdx < 0 || nextIdx >= slides.length) return;
+
+      stopAutoPlay();
+      isTransitioningRef.current = true;
+      setIsTransitioning(true);
+      setDirection(dir);
+      setTargetIndex(nextIdx);
+      transitionAnim.setValue(0);
+
+      Animated.timing(transitionAnim, {
+        toValue: 1,
+        duration: TRANSITION_DURATION,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+        useNativeDriver: true
+      }).start(({ finished }) => {
+        if (finished) {
+          currentIndexRef.current = nextIdx;
+          setCurrentIndex(nextIdx);
+          setTargetIndex(null);
+          transitionAnim.setValue(0);
+          isTransitioningRef.current = false;
+          setIsTransitioning(false);
+          startAutoPlay();
+        }
+      });
+    },
+    [slides.length, transitionAnim, stopAutoPlay]
+  );
+
+  const nextSlide = useCallback(() => {
+    const nextIdx = (currentIndexRef.current + 1) % slides.length;
+    goToSlide(nextIdx, 'next');
+  }, [slides.length, goToSlide]);
+
+  const prevSlide = useCallback(() => {
+    const prevIdx = (currentIndexRef.current - 1 + slides.length) % slides.length;
+    goToSlide(prevIdx, 'prev');
+  }, [slides.length, goToSlide]);
+
+  const startAutoPlay = useCallback(() => {
+    stopAutoPlay();
+    if (slides.length <= 1) return;
+
+    autoPlayTimerRef.current = setTimeout(() => {
+      if (isInteractingRef.current || isTransitioningRef.current) return;
+      nextSlide();
+    }, autoSlideInterval);
+  }, [autoSlideInterval, slides.length, stopAutoPlay, nextSlide]);
+
   useEffect(() => {
-    startAutoScroll();
-    return () => stopAutoScroll();
-  }, [startAutoScroll, stopAutoScroll]);
+    startAutoPlay();
+    return () => stopAutoPlay();
+  }, [startAutoPlay, stopAutoPlay]);
 
-  // Handle silent repositioning for seamless infinite loop
-  const handleMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = e.nativeEvent.contentOffset.x;
-    let index = Math.round(offsetX / cardWidth);
+  // PanResponder for manual swiping
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dy) < 20;
+        },
+        onPanResponderGrant: () => {
+          isInteractingRef.current = true;
+          stopAutoPlay();
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          isInteractingRef.current = false;
+          if (gestureState.dx < -35) {
+            nextSlide();
+          } else if (gestureState.dx > 35) {
+            prevSlide();
+          } else {
+            startAutoPlay();
+          }
+        },
+        onPanResponderTerminate: () => {
+          isInteractingRef.current = false;
+          startAutoPlay();
+        }
+      }),
+    [nextSlide, prevSlide, startAutoPlay, stopAutoPlay]
+  );
 
-    if (slides.length > 1) {
-      if (index === 0) {
-        // Scrolled before first slide -> jump to last real slide
-        index = slides.length;
-        flatListRef.current?.scrollToOffset({
-          offset: index * cardWidth,
-          animated: false
-        });
-        scrollX.setValue(index * cardWidth);
-      } else if (index === extendedSlides.length - 1) {
-        // Scrolled past last slide -> jump to first real slide
-        index = 1;
-        flatListRef.current?.scrollToOffset({
-          offset: index * cardWidth,
-          animated: false
-        });
-        scrollX.setValue(index * cardWidth);
-      }
-    }
+  const currentSlide = slides[currentIndex];
+  const nextSlideData = targetIndex !== null ? slides[targetIndex] : null;
 
-    currentIndexRef.current = index;
-    const realIndex = slides.length > 1 ? (index - 1 + slides.length) % slides.length : index;
-    setActiveIndex(realIndex);
-    isInteractingRef.current = false;
-    startAutoScroll();
-  };
+  // Compute slide transforms
+  const currentTranslateX = transitionAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, direction === 'next' ? -cardWidth : cardWidth]
+  });
 
-  const handleScrollBeginDrag = () => {
-    isInteractingRef.current = true;
-    stopAutoScroll();
-  };
+  const nextTranslateX = transitionAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [direction === 'next' ? cardWidth : -cardWidth, 0]
+  });
 
-  const handleScrollEndDrag = () => {
-    isInteractingRef.current = false;
-    startAutoScroll();
-  };
+  const renderSlideContent = (item: PromoSlide) => (
+    <TouchableOpacity
+      activeOpacity={0.92}
+      style={[styles.heroCard, { backgroundColor: item.bg }]}
+      onPress={() => {
+        if (onSelectCategory) {
+          onSelectCategory(item.category);
+        }
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.tag} - ${item.title}`}
+    >
+      <View style={[styles.ambientGlow, { backgroundColor: item.accent }]} />
 
-  const renderSlideItem = ({ item, index }: { item: PromoSlide; index: number }) => {
-    // Interpolate scale & opacity for 3D depth and parallax feel
-    const inputRange = [(index - 1) * cardWidth, index * cardWidth, (index + 1) * cardWidth];
+      <View style={styles.contentWrap}>
+        <View style={[styles.tagBadge, { borderColor: item.accent }]}>
+          <MaterialCommunityIcons name={item.icon} size={13} color={item.accent} />
+          <Text style={[styles.tagText, { color: item.accent }]}>{item.tag}</Text>
+        </View>
 
-    const scale = scrollX.interpolate({
-      inputRange,
-      outputRange: [0.96, 1, 0.96],
-      extrapolate: 'clamp'
-    });
+        <Text style={styles.titleText} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.subtitleText} numberOfLines={2}>
+          {item.subtitle}
+        </Text>
 
-    const opacity = scrollX.interpolate({
-      inputRange,
-      outputRange: [0.82, 1, 0.82],
-      extrapolate: 'clamp'
-    });
-
-    const contentTranslateX = scrollX.interpolate({
-      inputRange,
-      outputRange: [20, 0, -20],
-      extrapolate: 'clamp'
-    });
-
-    return (
-      <View style={[styles.slideOuter, { width: cardWidth }]}>
-        <Animated.View
-          style={[
-            styles.heroCard,
-            {
-              backgroundColor: item.bg,
-              transform: [{ scale }],
-              opacity
-            }
-          ]}
-        >
-          <TouchableOpacity
-            activeOpacity={0.92}
-            style={styles.cardPressable}
-            onPress={() => {
-              if (item.category && onSelectCategory) {
-                onSelectCategory(item.category);
-              }
-            }}
-          >
-            {/* BACKGROUND AMBIENT GLOW */}
-            <View
-              style={[
-                styles.ambientGlow,
-                { backgroundColor: item.accent }
-              ]}
-            />
-
-            {/* PARALLAX INNER CONTENT */}
-            <Animated.View
-              style={[
-                styles.heroTextContent,
-                { transform: [{ translateX: contentTranslateX }] }
-              ]}
-            >
-              <View style={[styles.heroTag, { borderColor: item.accent }]}>
-                {item.icon ? (
-                  <MaterialCommunityIcons name={item.icon} size={12} color={item.accent} />
-                ) : null}
-                <Text style={[styles.heroTagText, { color: item.accent }]}>{item.tag}</Text>
-              </View>
-
-              <Text style={styles.heroTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={styles.heroSubtitle} numberOfLines={2}>
-                {item.subtitle}
-              </Text>
-
-              <View style={[styles.heroShopBtn, { backgroundColor: item.accent }]}>
-                <Text style={styles.heroShopText}>{item.buttonLabel || 'Explore Supply'}</Text>
-                <Ionicons name="arrow-forward" size={13} color="#0F172A" />
-              </View>
-            </Animated.View>
-          </TouchableOpacity>
-        </Animated.View>
+        <View style={styles.btnRow}>
+          <View style={[styles.actionBtn, { backgroundColor: item.accent }]}>
+            <Text style={styles.actionBtnText}>{item.buttonLabel}</Text>
+            <Ionicons name="arrow-forward" size={13} color="#0F172A" />
+          </View>
+        </View>
       </View>
-    );
-  };
+    </TouchableOpacity>
+  );
 
   return (
-    <View style={styles.container}>
-      {/* ANIMATED CAROUSEL FLATLIST */}
-      <Animated.FlatList
-        ref={flatListRef}
-        data={extendedSlides}
-        keyExtractor={(_item, index) => `banner-slide-${index}`}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        snapToInterval={cardWidth}
-        snapToAlignment="center"
-        decelerationRate="fast"
-        bounces={false}
-        contentContainerStyle={styles.flatListContent}
-        initialScrollIndex={slides.length > 1 ? 1 : 0}
-        getItemLayout={(_data, index) => ({
-          length: cardWidth,
-          offset: cardWidth * index,
-          index
-        })}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-          { useNativeDriver: true }
-        )}
-        scrollEventThrottle={16}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onScrollEndDrag={handleScrollEndDrag}
-        onMomentumScrollEnd={handleMomentumScrollEnd}
-        renderItem={renderSlideItem}
-      />
+    <View style={styles.container} {...panResponder.panHandlers}>
+      {/* TWO-LAYER STABLE CAROUSEL CONTAINER (NEVER UNMOUNTS OR FLICKERS) */}
+      <View style={[styles.carouselStage, { width: cardWidth }]}>
+        {/* CURRENT VISIBLE SLIDE */}
+        <Animated.View
+          style={[
+            styles.slideLayer,
+            { width: cardWidth, transform: [{ translateX: currentTranslateX }] }
+          ]}
+        >
+          {renderSlideContent(currentSlide)}
+        </Animated.View>
+
+        {/* TRANSITIONING NEXT SLIDE LAYER */}
+        {isTransitioning && nextSlideData ? (
+          <Animated.View
+            style={[
+              styles.slideLayer,
+              { width: cardWidth, transform: [{ translateX: nextTranslateX }] }
+            ]}
+          >
+            {renderSlideContent(nextSlideData)}
+          </Animated.View>
+        ) : null}
+      </View>
 
       {/* ANIMATED PAGINATION PILLS */}
-      <View style={styles.dotRow}>
-        {slides.map((_, i) => {
-          const isActive = activeIndex === i;
+      <View style={styles.paginationRow}>
+        {slides.map((slide, i) => {
+          const isActive = (targetIndex !== null ? targetIndex : currentIndex) === i;
 
           return (
-            <View
-              key={`dot-${i}`}
-              style={[
-                styles.dot,
-                isActive ? styles.dotActive : styles.dotInactive
+            <Pressable
+              key={slide.id}
+              onPress={() => goToSlide(i, i > currentIndex ? 'next' : 'prev')}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.dotWrap,
+                pressed && { opacity: 0.7 }
               ]}
-            />
+              accessibilityRole="button"
+              accessibilityLabel={`Slide ${i + 1}`}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  isActive
+                    ? [styles.dotActive, { backgroundColor: slide.accent }]
+                    : styles.dotInactive
+                ]}
+              />
+            </Pressable>
           );
         })}
       </View>
     </View>
   );
-};
+});
+
+PromoBannerCarousel.displayName = 'PromoBannerCarousel';
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 14
-  },
-  flatListContent: {
+    marginBottom: 14,
     alignItems: 'center'
   },
-  slideOuter: {
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  heroCard: {
-    width: '100%',
+  carouselStage: {
+    height: 154,
     borderRadius: radius.lg,
     overflow: 'hidden',
-    minHeight: 142,
+    backgroundColor: '#0B1220', // Solid dark base prevents any white flash
     position: 'relative',
     ...shadows.card
   },
-  cardPressable: {
+  slideLayer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '100%'
+  },
+  heroCard: {
+    width: '100%',
+    height: '100%',
     padding: 16,
-    minHeight: 142,
     justifyContent: 'space-between',
-    width: '100%'
+    position: 'relative',
+    overflow: 'hidden'
   },
   ambientGlow: {
     position: 'absolute',
     right: -40,
     top: -40,
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    opacity: 0.12
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    opacity: 0.16
   },
-  heroTextContent: {
+  contentWrap: {
     gap: 4,
-    zIndex: 2
+    zIndex: 2,
+    flex: 1,
+    justifyContent: 'center'
   },
-  heroTag: {
+  tagBadge: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 2.5,
     borderRadius: radius.pill,
     marginBottom: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)'
+    backgroundColor: 'rgba(0, 0, 0, 0.35)'
   },
-  heroTagText: {
-    fontSize: 10,
+  tagText: {
+    fontSize: 9.5,
     fontWeight: '900',
-    letterSpacing: 0.8
+    letterSpacing: 0.5
   },
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 17,
+  titleText: {
+    fontSize: 16.5,
     fontWeight: '900',
-    letterSpacing: 0.2
+    color: colors.white,
+    letterSpacing: 0.1
   },
-  heroSubtitle: {
-    color: '#CBD5E1',
+  subtitleText: {
     fontSize: 12,
     lineHeight: 16,
-    maxWidth: '85%'
+    color: '#CBD5E1',
+    marginBottom: 6
   },
-  heroShopBtn: {
-    alignSelf: 'flex-start',
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: radius.pill,
-    marginTop: 8,
     ...shadows.sm
   },
-  heroShopText: {
-    color: '#0F172A',
+  actionBtnText: {
     fontSize: 11.5,
-    fontWeight: '900'
+    fontWeight: '900',
+    color: '#0F172A'
   },
-  dotRow: {
+  paginationRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: 5,
+    justifyContent: 'center',
+    gap: 6,
     marginTop: 10
   },
+  dotWrap: {
+    padding: 2
+  },
   dot: {
-    height: 6,
-    borderRadius: 3,
-    transitionProperty: 'all',
-    transitionDuration: '250ms'
-  } as any,
+    height: 5,
+    borderRadius: radius.pill
+  },
   dotActive: {
-    width: 20,
-    backgroundColor: colors.primary
+    width: 22
   },
   dotInactive: {
     width: 6,
-    backgroundColor: colors.border
+    backgroundColor: '#CBD5E1'
   }
 });
-
-export const PromoBannerCarousel = React.memo(PromoBannerCarouselBase);
-

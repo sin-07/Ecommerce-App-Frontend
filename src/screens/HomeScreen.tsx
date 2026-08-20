@@ -71,8 +71,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   // Drawer Animation State
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isDrawerMounted, setIsDrawerMounted] = useState(false);
   const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
+  const staggerAnim = useRef(new Animated.Value(0)).current;
   const cartScale = useRef(new Animated.Value(1)).current;
   const isClosingRef = useRef(false);
 
@@ -161,30 +163,42 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   // Smooth "Lazy" Drawer Open Animation
   const openDrawer = useCallback(() => {
     isClosingRef.current = false;
+    setIsDrawerMounted(true);
     setDrawerOpen(true);
     drawerAnim.setValue(-DRAWER_WIDTH);
     overlayAnim.setValue(0);
+    staggerAnim.setValue(0);
+
     Animated.parallel([
       Animated.timing(drawerAnim, {
         toValue: 0,
         duration: 340,
-        easing: Easing.out(Easing.cubic),
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
         useNativeDriver: true
       }),
       Animated.timing(overlayAnim, {
         toValue: 1,
-        duration: 300,
+        duration: 320,
         easing: Easing.out(Easing.quad),
+        useNativeDriver: true
+      }),
+      Animated.timing(staggerAnim, {
+        toValue: 1,
+        duration: 420,
+        delay: 50,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true
       })
     ]).start();
-  }, [drawerAnim, overlayAnim]);
+  }, [drawerAnim, overlayAnim, staggerAnim]);
 
   // Smooth "Lazy" Drawer Close Animation
   const closeDrawer = useCallback(
     (callback?: () => void) => {
       if (isClosingRef.current) return;
       isClosingRef.current = true;
+      setDrawerOpen(false);
+
       Animated.parallel([
         Animated.timing(drawerAnim, {
           toValue: -DRAWER_WIDTH,
@@ -197,16 +211,21 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           duration: 240,
           easing: Easing.in(Easing.quad),
           useNativeDriver: true
+        }),
+        Animated.timing(staggerAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true
         })
       ]).start(({ finished }) => {
         isClosingRef.current = false;
         if (finished) {
-          setDrawerOpen(false);
+          setIsDrawerMounted(false);
           if (callback) callback();
         }
       });
     },
-    [drawerAnim, overlayAnim]
+    [drawerAnim, overlayAnim, staggerAnim]
   );
 
   // Android Back Button listener: smoothly closes drawer first if open
@@ -648,14 +667,24 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       )}
 
       {/* SIDEBAR DRAWER OVERLAY */}
-      {drawerOpen && (
-        <Animated.View style={[styles.drawerOverlay, { opacity: overlayAnim }]}>
+      {isDrawerMounted && (
+        <Animated.View
+          style={[
+            styles.drawerOverlay,
+            {
+              opacity: overlayAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 0.48]
+              })
+            }
+          ]}
+        >
           <Pressable style={StyleSheet.absoluteFill} onPress={() => closeDrawer()} />
         </Animated.View>
       )}
 
       {/* SIDEBAR DRAWER */}
-      {drawerOpen && (
+      {isDrawerMounted && (
         <Animated.View
           style={[
             styles.drawerContainer,
@@ -668,210 +697,281 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           ]}
           {...drawerPanResponder.panHandlers}
         >
-          <View style={styles.drawerHeader}>
-            <View style={styles.drawerLogoWrap}>
-              <Image source={logoSource} style={styles.drawerLogo} resizeMode="cover" />
-              <View style={styles.drawerTitleWrap}>
-                <Text style={styles.drawerTitle}>AP Enterprises</Text>
-                <Text style={styles.drawerSub}>B2B Commerce</Text>
+          {/* STAGGERED SECTION 1: HEADER & PROFILE / GUEST CARD */}
+          <Animated.View
+            style={{
+              opacity: staggerAnim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 0.6, 1] }),
+              transform: [
+                {
+                  translateX: staggerAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] })
+                }
+              ]
+            }}
+          >
+            <View style={styles.drawerHeader}>
+              <View style={styles.drawerLogoWrap}>
+                <Image source={logoSource} style={styles.drawerLogo} resizeMode="cover" />
+                <View style={styles.drawerTitleWrap}>
+                  <Text style={styles.drawerTitle}>AP Enterprises</Text>
+                  <Text style={styles.drawerSub}>B2B Commerce</Text>
+                </View>
               </View>
+              <TouchableOpacity onPress={() => closeDrawer()} hitSlop={8} style={styles.drawerCloseBtn}>
+                <Ionicons name="close" size={22} color={colors.text} />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => closeDrawer()} hitSlop={8} style={styles.drawerCloseBtn}>
-              <Ionicons name="close" size={22} color={colors.text} />
-            </TouchableOpacity>
-          </View>
+          </Animated.View>
 
           <ScrollView style={styles.drawerScroll} showsVerticalScrollIndicator={false}>
-            {user ? (
-              <View style={styles.drawerUserCard}>
-                <View style={styles.drawerAvatar}>
-                  <Text style={styles.drawerAvatarText}>
-                    {(user.name || 'U').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.drawerUserInfo}>
-                  <Text style={styles.drawerUserName} numberOfLines={1}>
-                    {user.name}
-                  </Text>
-                  <Text style={styles.drawerUserEmail} numberOfLines={1}>
-                    {user.email}
-                  </Text>
-                  <View style={styles.drawerRolePill}>
-                    <Text style={styles.drawerRoleText}>WHOLESALE BUYER</Text>
+            {/* PROFILE / GUEST ACCESS CARD */}
+            <Animated.View
+              style={{
+                opacity: staggerAnim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 0.6, 1] }),
+                transform: [
+                  {
+                    translateX: staggerAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] })
+                  }
+                ]
+              }}
+            >
+              {user ? (
+                <View style={styles.drawerUserCard}>
+                  <View style={styles.drawerAvatar}>
+                    <Text style={styles.drawerAvatarText}>
+                      {(user.name || 'U').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.drawerUserInfo}>
+                    <Text style={styles.drawerUserName} numberOfLines={1}>
+                      {user.name}
+                    </Text>
+                    <Text style={styles.drawerUserEmail} numberOfLines={1}>
+                      {user.email}
+                    </Text>
+                    <View style={styles.drawerRolePill}>
+                      <Text style={styles.drawerRoleText}>WHOLESALE BUYER</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ) : (
-              <View style={styles.drawerGuestCard}>
-                <View style={styles.drawerGuestIcon}>
-                  <MaterialCommunityIcons name="shield-account" size={24} color={colors.primary} />
+              ) : (
+                <View style={styles.drawerGuestCard}>
+                  <View style={styles.drawerGuestIcon}>
+                    <MaterialCommunityIcons name="shield-account" size={24} color={colors.primary} />
+                  </View>
+                  <View style={styles.drawerGuestTextWrap}>
+                    <Text style={styles.drawerGuestTitle}>Wholesale Trade Access</Text>
+                    <Text style={styles.drawerGuestSub}>Sign in to place orders, view bulk discounts & reorder.</Text>
+                  </View>
+                  <View style={styles.drawerGuestActionRow}>
+                    <TouchableOpacity
+                      style={styles.drawerSignInBtn}
+                      onPress={() => closeDrawer(() => navigation.navigate('Login'))}
+                    >
+                      <Text style={styles.drawerSignInBtnText}>Sign In</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.drawerSignUpBtn}
+                      onPress={() => closeDrawer(() => navigation.navigate('Register'))}
+                    >
+                      <Text style={styles.drawerSignUpBtnText}>Create Account</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={styles.drawerGuestTextWrap}>
-                  <Text style={styles.drawerGuestTitle}>Wholesale Trade Access</Text>
-                  <Text style={styles.drawerGuestSub}>Sign in to place orders, view bulk discounts & reorder.</Text>
-                </View>
-                <View style={styles.drawerGuestActionRow}>
-                  <TouchableOpacity
-                    style={styles.drawerSignInBtn}
-                    onPress={() => closeDrawer(() => navigation.navigate('Login'))}
-                  >
-                    <Text style={styles.drawerSignInBtnText}>Sign In</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.drawerSignUpBtn}
-                    onPress={() => closeDrawer(() => navigation.navigate('Register'))}
-                  >
-                    <Text style={styles.drawerSignUpBtnText}>Create Account</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+              )}
+            </Animated.View>
 
             <View style={styles.drawerDivider} />
 
-            <View style={styles.drawerNavGroup}>
-              <Text style={styles.drawerNavLabel}>STOREFRONT & VERTICALS</Text>
+            {/* STAGGERED SECTION 2: STOREFRONT & VERTICALS */}
+            <Animated.View
+              style={{
+                opacity: staggerAnim.interpolate({ inputRange: [0, 0.2, 0.7, 1], outputRange: [0, 0, 0.7, 1] }),
+                transform: [
+                  {
+                    translateX: staggerAnim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [-16, -16, 0] })
+                  }
+                ]
+              }}
+            >
+              <View style={styles.drawerNavGroup}>
+                <Text style={styles.drawerNavLabel}>STOREFRONT & VERTICALS</Text>
 
-              <TouchableOpacity
-                style={[styles.drawerNavItem, styles.drawerNavItemActive]}
-                onPress={() => closeDrawer()}
-              >
-                <MaterialCommunityIcons name="home-outline" size={20} color={colors.primary} />
-                <Text style={[styles.drawerNavText, styles.drawerNavTextActive]}>Storefront Home</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.drawerNavItem, styles.drawerNavItemActive]}
+                  onPress={() => closeDrawer()}
+                >
+                  <MaterialCommunityIcons name="home-outline" size={20} color={colors.primary} />
+                  <Text style={[styles.drawerNavText, styles.drawerNavTextActive]}>Storefront Home</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() => closeDrawer(() => handleNavigateToCatalog())}
-              >
-                <MaterialCommunityIcons name="storefront-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>All Wholesale Catalog</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() => closeDrawer(() => handleNavigateToCatalog())}
+                >
+                  <MaterialCommunityIcons name="storefront-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>All Wholesale Catalog</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() => closeDrawer(() => handleNavigateToCategory('Eggs'))}
-              >
-                <MaterialCommunityIcons name="egg-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Farm Fresh Eggs</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() => closeDrawer(() => handleNavigateToCategory('Eggs'))}
+                >
+                  <MaterialCommunityIcons name="egg-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Farm Fresh Eggs</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() => closeDrawer(() => handleNavigateToCategory('Beverages'))}
-              >
-                <MaterialCommunityIcons name="cup-water" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Chilled Beverages</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() => closeDrawer(() => handleNavigateToCategory('Beverages'))}
+                >
+                  <MaterialCommunityIcons name="cup-water" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Chilled Beverages</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() => closeDrawer(() => handleNavigateToCategory('Existing Products'))}
-              >
-                <MaterialCommunityIcons name="cube-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Wholesale Supplies</Text>
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() => closeDrawer(() => handleNavigateToCategory('Existing Products'))}
+                >
+                  <MaterialCommunityIcons name="cube-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Wholesale Supplies</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
 
             <View style={styles.drawerDivider} />
 
-            <View style={styles.drawerNavGroup}>
-              <Text style={styles.drawerNavLabel}>TRADE MANAGEMENT</Text>
+            {/* STAGGERED SECTION 3: TRADE MANAGEMENT */}
+            <Animated.View
+              style={{
+                opacity: staggerAnim.interpolate({ inputRange: [0, 0.4, 0.9, 1], outputRange: [0, 0, 0.8, 1] }),
+                transform: [
+                  {
+                    translateX: staggerAnim.interpolate({ inputRange: [0, 0.4, 1], outputRange: [-16, -16, 0] })
+                  }
+                ]
+              }}
+            >
+              <View style={styles.drawerNavGroup}>
+                <Text style={styles.drawerNavLabel}>TRADE MANAGEMENT</Text>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() =>
-                  closeDrawer(() => {
-                    if (!user) triggerAuthPrompt('general');
-                    else navigation.navigate('Orders');
-                  })
-                }
-              >
-                <MaterialCommunityIcons name="clipboard-text-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Commercial Orders</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() =>
+                    closeDrawer(() => {
+                      if (!user) triggerAuthPrompt('general');
+                      else navigation.navigate('Orders');
+                    })
+                  }
+                >
+                  <MaterialCommunityIcons name="clipboard-text-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Commercial Orders</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() =>
-                  closeDrawer(() => {
-                    if (!user) triggerAuthPrompt('wishlist');
-                    else navigation.navigate('Wishlist');
-                  })
-                }
-              >
-                <Ionicons name="heart-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Wishlist</Text>
-                {wishlistItems.length > 0 && (
-                  <View style={styles.drawerBadge}>
-                    <Text style={styles.drawerBadgeText}>{wishlistItems.length}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() =>
+                    closeDrawer(() => {
+                      if (!user) triggerAuthPrompt('wishlist');
+                      else navigation.navigate('Wishlist');
+                    })
+                  }
+                >
+                  <Ionicons name="heart-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Wishlist</Text>
+                  {wishlistItems.length > 0 && (
+                    <View style={styles.drawerBadge}>
+                      <Text style={styles.drawerBadgeText}>{wishlistItems.length}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.drawerNavItem}
-                onPress={() =>
-                  closeDrawer(() => {
-                    if (!user) triggerAuthPrompt('cart');
-                    else navigation.navigate('Cart');
-                  })
-                }
-              >
-                <Ionicons name="cart-outline" size={20} color={colors.text} />
-                <Text style={styles.drawerNavText}>Wholesale Cart</Text>
-                {totalCartItems > 0 && (
-                  <View style={styles.drawerBadge}>
-                    <Text style={styles.drawerBadgeText}>{totalCartItems}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={styles.drawerNavItem}
+                  onPress={() =>
+                    closeDrawer(() => {
+                      if (!user) triggerAuthPrompt('cart');
+                      else navigation.navigate('Cart');
+                    })
+                  }
+                >
+                  <Ionicons name="cart-outline" size={20} color={colors.text} />
+                  <Text style={styles.drawerNavText}>Wholesale Cart</Text>
+                  {totalCartItems > 0 && (
+                    <View style={styles.drawerBadge}>
+                      <Text style={styles.drawerBadgeText}>{totalCartItems}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
 
             {user?.role === 'admin' && (
               <>
                 <View style={styles.drawerDivider} />
-                <View style={styles.drawerNavGroup}>
-                  <Text style={styles.drawerNavLabel}>ADMINISTRATION</Text>
-                  <TouchableOpacity
-                    style={styles.drawerNavItem}
-                    onPress={() => closeDrawer(() => navigation.navigate('AdminDashboard'))}
-                  >
-                    <MaterialCommunityIcons name="view-dashboard-outline" size={20} color={colors.citrus} />
-                    <Text style={[styles.drawerNavText, { color: colors.citrus }]}>Admin Portal</Text>
-                  </TouchableOpacity>
-                </View>
+                <Animated.View
+                  style={{
+                    opacity: staggerAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] }),
+                    transform: [
+                      {
+                        translateX: staggerAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [-16, -16, 0] })
+                      }
+                    ]
+                  }}
+                >
+                  <View style={styles.drawerNavGroup}>
+                    <Text style={styles.drawerNavLabel}>ADMINISTRATION</Text>
+                    <TouchableOpacity
+                      style={styles.drawerNavItem}
+                      onPress={() => closeDrawer(() => navigation.navigate('AdminDashboard'))}
+                    >
+                      <MaterialCommunityIcons name="view-dashboard-outline" size={20} color={colors.citrus} />
+                      <Text style={[styles.drawerNavText, { color: colors.citrus }]}>Admin Portal</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
               </>
             )}
 
             <View style={styles.drawerDivider} />
 
-            <View style={styles.drawerFooterGroup}>
-              {user ? (
-                <TouchableOpacity
-                  style={styles.drawerLogoutBtn}
-                  onPress={handleLogout}
-                  disabled={loggingOut}
-                >
-                  {loggingOut ? (
-                    <ActivityIndicator size="small" color={colors.danger} />
-                  ) : (
-                    <>
-                      <MaterialCommunityIcons name="logout" size={18} color={colors.danger} />
-                      <Text style={styles.drawerLogoutText}>Sign Out of Trade Account</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.drawerLoginCtaBtn}
-                  onPress={() => closeDrawer(() => navigation.navigate('Login'))}
-                >
-                  <MaterialCommunityIcons name="login" size={18} color={colors.primary} />
-                  <Text style={styles.drawerLoginCtaText}>Sign In to Wholesale Account</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {/* STAGGERED SECTION 4: FOOTER / SIGN OUT */}
+            <Animated.View
+              style={{
+                opacity: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0, 1] }),
+                transform: [
+                  {
+                    translateX: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [-16, -16, 0] })
+                  }
+                ]
+              }}
+            >
+              <View style={styles.drawerFooterGroup}>
+                {user ? (
+                  <TouchableOpacity
+                    style={styles.drawerLogoutBtn}
+                    onPress={handleLogout}
+                    disabled={loggingOut}
+                  >
+                    {loggingOut ? (
+                      <ActivityIndicator size="small" color={colors.danger} />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="logout" size={18} color={colors.danger} />
+                        <Text style={styles.drawerLogoutText}>Sign Out of Trade Account</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.drawerLoginCtaBtn}
+                    onPress={() => closeDrawer(() => navigation.navigate('Login'))}
+                  >
+                    <MaterialCommunityIcons name="login" size={18} color={colors.primary} />
+                    <Text style={styles.drawerLoginCtaText}>Sign In to Wholesale Account</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </Animated.View>
           </ScrollView>
         </Animated.View>
       )}
