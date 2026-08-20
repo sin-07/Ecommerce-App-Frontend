@@ -33,7 +33,7 @@ import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
 import { logout } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
-import { clearProducts, fetchProducts, fetchCategories } from '../redux/slices/productSlice';
+import { clearProducts, fetchProducts, fetchCategories, setCachedProducts } from '../redux/slices/productSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
 import { toast } from '../utils/toast';
 
@@ -49,6 +49,41 @@ const CATEGORIES = [
   { id: 'Existing Products', label: 'Wholesale Supplies', icon: 'cube-outline' }
 ];
 
+const AnimatedProductCell: React.FC<{
+  children: React.ReactNode;
+  index: number;
+}> = React.memo(({ children, index }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(8)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 200,
+        delay: Math.min(index, 6) * 30,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 200,
+        delay: Math.min(index, 6) * 30,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true
+      })
+    ]).start();
+  }, [opacity, translateY, index]);
+
+  return (
+    <Animated.View style={[styles.productCell, { opacity, transform: [{ translateY }] }]}>
+      {children}
+    </Animated.View>
+  );
+});
+
+AnimatedProductCell.displayName = 'AnimatedProductCell';
+
 export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
@@ -60,15 +95,89 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState(route.params?.initialCategory || '');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high'>('all');
+  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
+
+  // In-Memory Category & Filter Cache for Instant Switching
+  const categoryCacheRef = useRef<Record<string, { items: Product[]; page: number; totalPages: number }>>({});
+  const latestRequestId = useRef(0);
 
   // Drawer animation state
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const cartScale = useRef(new Animated.Value(1)).current;
+
+  // Master execution function for product data fetching & caching
+  const executeProductFetch = useCallback(
+    async (
+      targetCategory: string,
+      targetSearch: string,
+      targetFilter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high',
+      targetPage: number = 1,
+      forceRefresh: boolean = false
+    ) => {
+      let sortBy = 'newest';
+      let isFeatured: boolean | undefined;
+      let isBestSeller: boolean | undefined;
+
+      if (targetFilter === 'featured') isFeatured = true;
+      if (targetFilter === 'bestseller') isBestSeller = true;
+      if (targetFilter === 'price_low') sortBy = 'price_asc';
+      if (targetFilter === 'price_high') sortBy = 'price_desc';
+
+      const cacheKey = `${targetCategory}_${targetSearch.trim().toLowerCase()}_${targetFilter}_${targetPage}`;
+
+      // If cached and not forced refresh, immediately display cached items without waiting
+      if (!forceRefresh && categoryCacheRef.current[cacheKey]) {
+        const cached = categoryCacheRef.current[cacheKey];
+        dispatch(setCachedProducts({ items: cached.items, page: cached.page, totalPages: cached.totalPages }));
+        setIsCategoryLoading(false);
+        return;
+      }
+
+      // If cache miss, activate immediate loading state
+      if (targetPage === 1) {
+        setIsCategoryLoading(true);
+      }
+
+      const reqId = ++latestRequestId.current;
+
+      try {
+        const res = await dispatch(
+          fetchProducts({
+            page: targetPage,
+            limit: 16,
+            search: targetSearch.trim(),
+            category: targetCategory,
+            isFeatured,
+            isBestSeller,
+            sortBy
+          })
+        ).unwrap();
+
+        // Check for race condition: only update if this is still the latest user request
+        if (reqId === latestRequestId.current) {
+          if (res?.data && res?.pagination) {
+            categoryCacheRef.current[cacheKey] = {
+              items: res.data,
+              page: res.pagination.page,
+              totalPages: res.pagination.totalPages
+            };
+          }
+        }
+      } catch (fetchErr) {
+        // Handled via Redux error state
+      } finally {
+        if (reqId === latestRequestId.current) {
+          setIsCategoryLoading(false);
+        }
+      }
+    },
+    [dispatch]
+  );
 
   // Sync route params if category passed from drawer
   useEffect(() => {
@@ -77,13 +186,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [route.params?.initialCategory]);
 
+  // Initial load
   useEffect(() => {
-    dispatch(fetchProducts({ page: 1, limit: 16 }));
+    executeProductFetch(category, search, selectedFilter, 1);
     dispatch(fetchCategories());
     dispatch(fetchCart());
     dispatch(loadWishlist());
   }, [dispatch]);
-
 
   // Drawer Open / Close Animation
   const openDrawer = () => {
@@ -122,61 +231,29 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   };
 
-  // Instant filter or debounced search
+  // Debounced search effect
   useEffect(() => {
-    let sortBy = 'newest';
-    let isFeatured: boolean | undefined;
-    let isBestSeller: boolean | undefined;
-
-    if (selectedFilter === 'featured') isFeatured = true;
-    if (selectedFilter === 'bestseller') isBestSeller = true;
-    if (selectedFilter === 'price_low') sortBy = 'price_asc';
-    if (selectedFilter === 'price_high') sortBy = 'price_desc';
-
-    const delay = search ? 280 : 0;
+    if (!search.trim()) return;
     const timer = setTimeout(() => {
-      dispatch(
-        fetchProducts({
-          page: 1,
-          limit: 16,
-          search: search.trim(),
-          category,
-          isFeatured,
-          isBestSeller,
-          sortBy
-        })
-      );
-    }, delay);
-
+      executeProductFetch(category, search, selectedFilter, 1);
+    }, 260);
     return () => clearTimeout(timer);
-  }, [dispatch, search, category, selectedFilter]);
+  }, [search, category, selectedFilter, executeProductFetch]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await dispatch(
-      fetchProducts({
-        page: 1,
-        limit: 16,
-        search: search.trim(),
-        category
-      })
-    );
+    // Invalidate cache on manual pull-to-refresh
+    categoryCacheRef.current = {};
+    await executeProductFetch(category, search, selectedFilter, 1, true);
     await dispatch(fetchCart());
     await dispatch(loadWishlist());
     setIsRefreshing(false);
-  }, [dispatch, search, category]);
+  }, [category, search, selectedFilter, executeProductFetch, dispatch]);
 
   const loadNextPage = useCallback(() => {
     if (loadingMore || page >= totalPages) return;
-    dispatch(
-      fetchProducts({
-        page: page + 1,
-        limit: 16,
-        search: search.trim(),
-        category
-      })
-    );
-  }, [dispatch, loadingMore, page, totalPages, search, category]);
+    executeProductFetch(category, search, selectedFilter, page + 1, false);
+  }, [loadingMore, page, totalPages, category, search, selectedFilter, executeProductFetch]);
 
   const getCartQuantityForProduct = useCallback(
     (productId: string) => {
@@ -255,19 +332,31 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     [dispatch, getCartQuantityForProduct]
   );
 
-  const handleSelectCategory = useCallback((catId: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCategory(catId);
-  }, []);
+  // Immediate category tab selection with instant feedback and loading state
+  const handleSelectCategory = useCallback(
+    (catId: string) => {
+      if (catId === category) return;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setCategory(catId);
+      executeProductFetch(catId, search, selectedFilter, 1);
+    },
+    [category, search, selectedFilter, executeProductFetch]
+  );
 
-  const handleSelectFilter = useCallback((filter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high') => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setSelectedFilter(filter);
-  }, []);
+  // Immediate sort filter selection
+  const handleSelectFilter = useCallback(
+    (filter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high') => {
+      if (filter === selectedFilter) return;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setSelectedFilter(filter);
+      executeProductFetch(category, search, filter, 1);
+    },
+    [selectedFilter, category, search, executeProductFetch]
+  );
 
   const renderProductItem = useCallback(
-    ({ item }: { item: Product }) => (
-      <View style={styles.productCell}>
+    ({ item, index }: { item: Product; index: number }) => (
+      <AnimatedProductCell index={index}>
         <ProductCard
           product={item}
           compact
@@ -277,192 +366,219 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           onDecrementCart={() => decrementProduct(item._id)}
           onOpenCart={() => navigation.navigate('Cart')}
         />
-      </View>
+      </AnimatedProductCell>
     ),
     [getCartQuantityForProduct, incrementProduct, decrementProduct, navigation]
   );
 
-  const renderHeader = useMemo(() => (
-    <View style={styles.headerSection}>
-      {/* BRAND & USER APP BAR */}
-      <View style={styles.headerRow}>
-        <View style={styles.logoBadge}>
-          <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
-        </View>
-        <View style={styles.greetingWrap}>
-          <View style={styles.companyRow}>
-            <Text style={styles.companyName}>AP Enterprises</Text>
-            <View style={styles.b2bBadge}>
-              <Text style={styles.b2bBadgeText}>B2B COMMERCE</Text>
-            </View>
+  const renderHeader = useMemo(
+    () => (
+      <View style={styles.headerSection}>
+        {/* BRAND & USER APP BAR */}
+        <View style={styles.headerRow}>
+          <View style={styles.logoBadge}>
+            <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
           </View>
-          <Text style={styles.greeting} numberOfLines={1}>
-            Hello, {user?.name?.split(' ')[0] || 'Wholesale Buyer'}
-          </Text>
-        </View>
-        <View style={styles.topActionBtns}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => navigation.navigate('Wishlist')}
-            hitSlop={6}
-            accessibilityLabel="Open wishlist"
-          >
-            <Ionicons name="heart-outline" size={21} color={colors.text} />
-            {wishlistItems.length > 0 && (
-              <View style={styles.iconBadge}>
-                <Text style={styles.iconBadgeText}>{wishlistItems.length}</Text>
+          <View style={styles.greetingWrap}>
+            <View style={styles.companyRow}>
+              <Text style={styles.companyName}>AP Enterprises</Text>
+              <View style={styles.b2bBadge}>
+                <Text style={styles.b2bBadgeText}>B2B COMMERCE</Text>
               </View>
-            )}
+            </View>
+            <Text style={styles.greeting} numberOfLines={1}>
+              Hello, {user?.name?.split(' ')[0] || 'Wholesale Buyer'}
+            </Text>
+          </View>
+          <View style={styles.topActionBtns}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => navigation.navigate('Wishlist')}
+              hitSlop={6}
+              accessibilityLabel="Open wishlist"
+            >
+              <Ionicons name="heart-outline" size={21} color={colors.text} />
+              {wishlistItems.length > 0 && (
+                <View style={styles.iconBadge}>
+                  <Text style={styles.iconBadgeText}>{wishlistItems.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={openDrawer}
+              hitSlop={6}
+              accessibilityLabel="Open sidebar menu"
+            >
+              <MaterialCommunityIcons name="menu" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* SEARCH BAR */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchField}>
+            <Ionicons name="search" size={19} color={colors.primary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search eggs, coca-cola, pepsi, crates..."
+              placeholderTextColor={colors.textMuted}
+              value={search}
+              onChangeText={(text) => {
+                setSearch(text);
+                if (text === '') {
+                  executeProductFetch(category, '', selectedFilter, 1);
+                }
+              }}
+              returnKeyType="search"
+              autoCapitalize="none"
+            />
+            {search.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearch('');
+                  executeProductFetch(category, '', selectedFilter, 1);
+                }}
+                hitSlop={6}
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        {/* HERO / PROMO BANNER CAROUSEL (REMAINS 100% STABLE & MOUNTED) */}
+        {!search && (
+          <PromoBannerCarousel onSelectCategory={handleSelectCategory} />
+        )}
+
+        {/* CATEGORY TABS */}
+        <View style={styles.categorySection}>
+          <Text style={styles.sectionHeading}>Product Categories</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+            {CATEGORIES.map((cat) => {
+              const isSelected = category === cat.id;
+              const isThisCategoryLoading = isSelected && isCategoryLoading;
+
+              return (
+                <TouchableOpacity
+                  key={cat.id || 'all'}
+                  activeOpacity={0.8}
+                  onPress={() => handleSelectCategory(cat.id)}
+                  style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
+                >
+                  {isThisCategoryLoading ? (
+                    <View style={styles.tabLoader}>
+                      <ActivityIndicator size="small" color={colors.white} />
+                    </View>
+                  ) : (
+                    <MaterialCommunityIcons
+                      name={cat.icon as any}
+                      size={18}
+                      color={isSelected ? colors.white : colors.primary}
+                    />
+                  )}
+                  <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* FILTER CHIPS */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipScroll}>
+          <TouchableOpacity
+            onPress={() => handleSelectFilter('all')}
+            style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
+              All Items
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.iconButton}
-            onPress={openDrawer}
-            hitSlop={6}
-            accessibilityLabel="Open sidebar menu"
+            onPress={() => handleSelectFilter('featured')}
+            style={[styles.filterChip, selectedFilter === 'featured' && styles.filterChipActive]}
           >
-            <MaterialCommunityIcons name="menu" size={22} color={colors.text} />
+            <View style={styles.chipInnerRow}>
+              <Feather
+                name="star"
+                size={12}
+                color={selectedFilter === 'featured' ? colors.white : colors.primary}
+              />
+              <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
+                Featured
+              </Text>
+            </View>
           </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* SEARCH BAR */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchField}>
-          <Ionicons name="search" size={19} color={colors.primary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search eggs, coca-cola, pepsi, crates..."
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
-            returnKeyType="search"
-            autoCapitalize="none"
-          />
-          {search.length > 0 ? (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={6}>
-              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+          <TouchableOpacity
+            onPress={() => handleSelectFilter('bestseller')}
+            style={[styles.filterChip, selectedFilter === 'bestseller' && styles.filterChipActive]}
+          >
+            <View style={styles.chipInnerRow}>
+              <Feather
+                name="trending-up"
+                size={12}
+                color={selectedFilter === 'bestseller' ? colors.white : colors.primary}
+              />
+              <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
+                Bestsellers
+              </Text>
+            </View>
+          </TouchableOpacity>
 
-      {/* HERO / PROMO BANNER CAROUSEL */}
-      {!search && (
-        <PromoBannerCarousel
-          onSelectCategory={handleSelectCategory}
-        />
-      )}
+          <TouchableOpacity
+            onPress={() => handleSelectFilter('price_low')}
+            style={[styles.filterChip, selectedFilter === 'price_low' && styles.filterChipActive]}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'price_low' && styles.filterChipTextActive]}>
+              Price: Low to High
+            </Text>
+          </TouchableOpacity>
 
-      {/* CATEGORY TABS */}
-      <View style={styles.categorySection}>
-        <Text style={styles.sectionHeading}>Product Categories</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-          {CATEGORIES.map((cat) => {
-            const isSelected = category === cat.id;
-            return (
-              <TouchableOpacity
-                key={cat.id || 'all'}
-                activeOpacity={0.8}
-                onPress={() => handleSelectCategory(cat.id)}
-                style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
-              >
-                {isSelected && loading ? (
-                  <ActivityIndicator size="small" color={colors.white} style={styles.tabLoader} />
-                ) : (
-                  <MaterialCommunityIcons
-                    name={cat.icon as any}
-                    size={18}
-                    color={isSelected ? colors.white : colors.primary}
-                  />
-                )}
-                <Text style={[styles.categoryTabText, isSelected && styles.categoryTabTextActive]}>
-                  {cat.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          <TouchableOpacity
+            onPress={() => handleSelectFilter('price_high')}
+            style={[styles.filterChip, selectedFilter === 'price_high' && styles.filterChipActive]}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'price_high' && styles.filterChipTextActive]}>
+              Price: High to Low
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
+
+        {/* PRODUCTS SECTION TITLE */}
+        <View style={styles.catalogHeadingRow}>
+          <Text style={styles.catalogHeading}>
+            {category ? `${category} Catalog` : 'Wholesale Catalog'}
+          </Text>
+          <Text style={styles.catalogCount}>
+            {isCategoryLoading ? 'Loading products…' : `${items.length} item${items.length === 1 ? '' : 's'} available`}
+          </Text>
+        </View>
       </View>
-
-      {/* FILTER CHIPS */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipScroll}>
-        <TouchableOpacity
-          onPress={() => handleSelectFilter('all')}
-          style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
-            All Items
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleSelectFilter('featured')}
-          style={[styles.filterChip, selectedFilter === 'featured' && styles.filterChipActive]}
-        >
-          <View style={styles.chipInnerRow}>
-            <Feather
-              name="star"
-              size={12}
-              color={selectedFilter === 'featured' ? colors.white : colors.primary}
-            />
-            <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
-              Featured
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleSelectFilter('bestseller')}
-          style={[styles.filterChip, selectedFilter === 'bestseller' && styles.filterChipActive]}
-        >
-          <View style={styles.chipInnerRow}>
-            <Feather
-              name="trending-up"
-              size={12}
-              color={selectedFilter === 'bestseller' ? colors.white : colors.primary}
-            />
-            <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
-              Bestsellers
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleSelectFilter('price_low')}
-          style={[styles.filterChip, selectedFilter === 'price_low' && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, selectedFilter === 'price_low' && styles.filterChipTextActive]}>
-            Price: Low to High
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => handleSelectFilter('price_high')}
-          style={[styles.filterChip, selectedFilter === 'price_high' && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, selectedFilter === 'price_high' && styles.filterChipTextActive]}>
-            Price: High to Low
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* PRODUCTS SECTION TITLE */}
-      <View style={styles.catalogHeadingRow}>
-        <Text style={styles.catalogHeading}>
-          {category ? `${category} Catalog` : 'Wholesale Catalog'}
-        </Text>
-        <Text style={styles.catalogCount}>
-          {items.length} item{items.length === 1 ? '' : 's'} available
-        </Text>
-      </View>
-    </View>
-  ), [user?.name, wishlistItems.length, search, category, selectedFilter, items.length, handleSelectCategory, handleSelectFilter]);
+    ),
+    [
+      user?.name,
+      wishlistItems.length,
+      search,
+      category,
+      selectedFilter,
+      isCategoryLoading,
+      items.length,
+      handleSelectCategory,
+      handleSelectFilter,
+      executeProductFetch
+    ]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <FlatList
-        data={items}
+        data={isCategoryLoading ? [] : items}
         keyExtractor={(item) => item._id}
         numColumns={2}
         columnWrapperStyle={styles.columnWrapper}
@@ -470,16 +586,19 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         ListHeaderComponent={renderHeader}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
         ListEmptyComponent={
-          loading ? (
+          isCategoryLoading || (loading && items.length === 0) ? (
             <View style={styles.skeletonGrid}>
-              {[1, 2, 3, 4, 5, 6].map((i) => (
+              {[1, 2, 3, 4].map((i) => (
                 <View key={i} style={styles.productCell}>
                   <ProductCardSkeleton compact />
                 </View>
               ))}
             </View>
           ) : error ? (
-            <ErrorView message={error} onRetry={() => dispatch(fetchProducts({ page: 1, limit: 16, category }))} />
+            <ErrorView
+              message={error}
+              onRetry={() => executeProductFetch(category, search, selectedFilter, 1, true)}
+            />
           ) : (
             <EmptyState
               title="No Products Found"
@@ -489,17 +608,18 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 setSearch('');
                 setCategory('');
                 setSelectedFilter('all');
+                executeProductFetch('', '', 'all', 1);
               }}
             />
           )
         }
         ListFooterComponent={
-          items.length > 0 && totalPages > 1 ? (
+          !isCategoryLoading && items.length > 0 && totalPages > 1 ? (
             <View style={styles.pagination}>
               <TouchableOpacity
                 onPress={() => {
                   if (page > 1) {
-                    dispatch(fetchProducts({ page: page - 1, limit: 16, search: search.trim(), category }));
+                    executeProductFetch(category, search, selectedFilter, page - 1);
                   }
                 }}
                 disabled={page <= 1}
@@ -567,7 +687,11 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               {/* NAVIGATION MENU ITEMS */}
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => { setCategory(''); setSelectedFilter('all'); })}
+                onPress={() => closeDrawer(() => {
+                  setCategory('');
+                  setSelectedFilter('all');
+                  executeProductFetch('', search, 'all', 1);
+                })}
               >
                 <Ionicons name="home-outline" size={20} color={colors.primary} />
                 <Text style={styles.drawerItemText}>Home & All Products</Text>
@@ -575,7 +699,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => setCategory('Eggs'))}
+                onPress={() => closeDrawer(() => {
+                  setCategory('Eggs');
+                  executeProductFetch('Eggs', search, selectedFilter, 1);
+                })}
               >
                 <MaterialCommunityIcons name="egg-outline" size={20} color="#D97706" />
                 <Text style={styles.drawerItemText}>Farm Fresh Eggs</Text>
@@ -586,7 +713,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => setCategory('Beverages'))}
+                onPress={() => closeDrawer(() => {
+                  setCategory('Beverages');
+                  executeProductFetch('Beverages', search, selectedFilter, 1);
+                })}
               >
                 <MaterialCommunityIcons name="cup-water" size={20} color="#0284C7" />
                 <Text style={styles.drawerItemText}>Chilled Beverages</Text>
@@ -597,7 +727,10 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => setCategory('Existing Products'))}
+                onPress={() => closeDrawer(() => {
+                  setCategory('Existing Products');
+                  executeProductFetch('Existing Products', search, selectedFilter, 1);
+                })}
               >
                 <MaterialCommunityIcons name="cube-outline" size={20} color={colors.primary} />
                 <Text style={styles.drawerItemText}>Wholesale Supplies</Text>
@@ -749,12 +882,14 @@ const styles = StyleSheet.create({
   logoBadge: {
     width: 44,
     height: 44,
-    borderRadius: 14,
-    overflow: 'hidden',
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-    ...shadows.card
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden'
   },
   logoImage: {
     width: '100%',
@@ -769,31 +904,30 @@ const styles = StyleSheet.create({
     gap: 6
   },
   companyName: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6
+    fontSize: 18,
+    fontWeight: '900',
+    color: colors.navy,
+    letterSpacing: 0.2
   },
   b2bBadge: {
-    backgroundColor: colors.infoSurface,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.infoBorder
+    borderColor: '#BBF7D0'
   },
   b2bBadgeText: {
-    color: colors.primary,
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '900',
+    color: '#15803D',
     letterSpacing: 0.4
   },
   greeting: {
-    color: colors.navy,
-    fontSize: 19,
-    fontWeight: '900',
-    marginTop: 1
+    fontSize: 12.5,
+    color: colors.textSecondary,
+    marginTop: 1,
+    fontWeight: '600'
   },
   topActionBtns: {
     flexDirection: 'row',
@@ -803,26 +937,25 @@ const styles = StyleSheet.create({
   iconButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.md,
     backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadows.card,
     position: 'relative'
   },
   iconBadge: {
     position: 'absolute',
-    top: -3,
-    right: -3,
-    backgroundColor: '#EF4444',
+    top: -4,
+    right: -4,
+    backgroundColor: colors.danger,
+    borderRadius: radius.pill,
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4
+    paddingHorizontal: 3
   },
   iconBadgeText: {
     color: colors.white,
@@ -850,76 +983,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     paddingVertical: 8
   },
-  heroSection: {
-    marginBottom: 14
-  },
-  heroCard: {
-    borderRadius: radius.lg,
-    padding: 16,
-    marginRight: 12,
-    justifyContent: 'space-between',
-    minHeight: 140,
-    ...shadows.card
-  },
-  heroTextContent: {
-    gap: 4
-  },
-  heroTag: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-    marginBottom: 4
-  },
-  heroTagText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8
-  },
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '900'
-  },
-  heroSubtitle: {
-    color: '#CBD5E1',
-    fontSize: 12,
-    lineHeight: 16,
-    maxWidth: '85%'
-  },
-  heroShopBtn: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    marginTop: 8
-  },
-  heroShopText: {
-    color: '#0F172A',
-    fontSize: 11.5,
-    fontWeight: '900'
-  },
-  dotRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 8
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border
-  },
-  dotActive: {
-    width: 18,
-    backgroundColor: colors.primary
-  },
   categorySection: {
     marginBottom: 10
   },
@@ -935,9 +998,11 @@ const styles = StyleSheet.create({
   categoryTab: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    minHeight: 38,
     borderRadius: radius.pill,
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -945,7 +1010,11 @@ const styles = StyleSheet.create({
     ...shadows.card
   },
   tabLoader: {
-    transform: [{ scale: 0.75 }]
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ scale: 0.8 }]
   },
   categoryTabActive: {
     backgroundColor: colors.primary,
@@ -988,14 +1057,14 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: colors.primary,
-    fontWeight: '800'
+    fontWeight: '900'
   },
   catalogHeadingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginTop: 4,
-    marginBottom: 6
+    marginBottom: 4
   },
   catalogHeading: {
     fontSize: 16,
@@ -1003,24 +1072,24 @@ const styles = StyleSheet.create({
     color: colors.navy
   },
   catalogCount: {
-    fontSize: 11.5,
-    color: colors.textMuted,
-    fontWeight: '600'
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary
   },
   pagination: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
-    marginTop: 6
+    paddingVertical: 16,
+    marginTop: 8
   },
   pageButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border
@@ -1037,15 +1106,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted
   },
   pageIndicator: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 12.5,
+    fontWeight: '800',
     color: colors.textSecondary
   },
-  // Animated Drawer Styles
   drawerBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    zIndex: 99
+    backgroundColor: 'rgba(15, 23, 42, 0.45)'
   },
   drawerPanel: {
     position: 'absolute',
@@ -1054,19 +1121,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: colors.card,
     borderRightWidth: 1,
-    borderColor: colors.border,
+    borderRightColor: colors.border,
     paddingHorizontal: 16,
-    zIndex: 100,
-    ...shadows.floating
+    ...shadows.modal
   },
   drawerHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 14,
+    justifyContent: 'space-between',
+    paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    marginBottom: 8
+    marginBottom: 12
   },
   drawerBrandRow: {
     flexDirection: 'row',
@@ -1076,53 +1142,57 @@ const styles = StyleSheet.create({
   drawerLogo: {
     width: 38,
     height: 38,
-    borderRadius: 10
+    borderRadius: radius.md
   },
   drawerTitle: {
     color: colors.navy,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '900'
   },
   drawerSubtitle: {
-    color: colors.textMuted,
+    color: colors.textSecondary,
     fontSize: 11,
-    fontWeight: '600'
+    marginTop: 1
   },
   drawerCloseBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radius.sm,
     backgroundColor: colors.cardAlt,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border
   },
   drawerScroll: {
-    paddingVertical: 8,
-    gap: 4
+    gap: 6,
+    paddingBottom: 24
   },
   drawerItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 11,
     paddingHorizontal: 10,
     borderRadius: radius.md
   },
   drawerItemText: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text
+    color: colors.text,
+    fontSize: 13.5,
+    fontWeight: '700'
   },
   drawerBadge: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.infoSurface,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: radius.pill
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.infoBorder
   },
   drawerBadgeText: {
-    color: colors.white,
-    fontSize: 10.5,
+    color: colors.primary,
+    fontSize: 11,
     fontWeight: '800'
   },
   drawerDivider: {
@@ -1131,11 +1201,11 @@ const styles = StyleSheet.create({
     marginVertical: 6
   },
   drawerLogout: {
-    marginTop: 8
+    marginTop: 6
   },
   floatingCart: {
     position: 'absolute',
-    right: 18,
+    right: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -1143,26 +1213,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: radius.pill,
-    ...shadows.floating,
-    zIndex: 10
+    ...shadows.floating
   },
   floatingCartText: {
     color: colors.white,
     fontSize: 14,
-    fontWeight: '800'
+    fontWeight: '900'
   },
   cartBadge: {
-    backgroundColor: '#EF4444',
+    backgroundColor: colors.white,
+    borderRadius: radius.pill,
     minWidth: 20,
     height: 20,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5
+    paddingHorizontal: 4
   },
   cartBadgeText: {
-    color: colors.white,
-    fontSize: 11,
+    color: colors.primary,
+    fontSize: 11.5,
     fontWeight: '900'
   }
 });

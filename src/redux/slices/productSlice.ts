@@ -99,6 +99,16 @@ const productSlice = createSlice({
       state.page = 1;
       state.totalPages = 1;
       state.error = null;
+    },
+    setCachedProducts: (
+      state,
+      action: { payload: { items: Product[]; page?: number; totalPages?: number } }
+    ) => {
+      state.items = action.payload.items;
+      if (action.payload.page) state.page = action.payload.page;
+      if (action.payload.totalPages) state.totalPages = action.payload.totalPages;
+      state.loading = false;
+      state.error = null;
     }
   },
   extraReducers: (builder) => {
@@ -148,5 +158,5 @@ const productSlice = createSlice({
   }
 });
 
-export const { clearProducts } = productSlice.actions;
+export const { clearProducts, setCachedProducts } = productSlice.actions;
 export default productSlice.reducer;
