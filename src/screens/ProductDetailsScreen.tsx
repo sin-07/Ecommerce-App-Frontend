@@ -17,6 +17,7 @@ import { toggleWishlist } from '../redux/slices/wishlistSlice';
 import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 import { ProductCard } from '../components/ProductCard';
+import { ProductDetailsSkeleton } from '../components/ProductDetailsSkeleton';
 import { Product } from '../constants/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetails'>;
@@ -73,7 +74,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
       .slice(0, 4);
   }, [allProducts, resolved]);
 
-  if (loading && !resolved) return <LoadingView label="Fetching wholesale product details..." />;
+  if (loading && !resolved) return <ProductDetailsSkeleton />;
   if (error && !resolved) return <ErrorView message={error} onRetry={() => dispatch(fetchProductById(productId))} />;
   if (!resolved) return <ErrorView message="Product item unavailable" />;
 

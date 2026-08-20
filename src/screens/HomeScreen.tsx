@@ -409,11 +409,8 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
-      >
+      {/* STICKY TOP CONTAINER: BRAND HEADER + SEARCH BAR */}
+      <View style={styles.stickyTopBar}>
         {/* 1. BRAND & USER HEADER */}
         <View style={styles.headerRow}>
           <View style={styles.logoBadge}>
@@ -459,7 +456,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* 2. SEARCH BAR */}
+        {/* 2. STICKY SEARCH BAR */}
         <View style={styles.searchContainer}>
           <View style={styles.searchField}>
             <Ionicons name="search" size={19} color={colors.primary} />
@@ -484,7 +481,14 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
             )}
           </View>
         </View>
+      </View>
 
+      {/* SCROLLABLE STOREFRONT CONTENT */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
+      >
         {/* 3. PREMIUM HERO CAROUSEL */}
         <PromoBannerCarousel onSelectCategory={handleNavigateToCategory} />
 
@@ -982,14 +986,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg
   },
+  stickyTopBar: {
+    backgroundColor: colors.bg,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+    zIndex: 10
+  },
   scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 90
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14
+    marginBottom: 10
   },
   logoBadge: {
     width: 44,
