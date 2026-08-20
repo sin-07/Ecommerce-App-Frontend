@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Animated,
   FlatList,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+
+const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProductCard } from '../components/ProductCard';
 import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
@@ -169,7 +172,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       {/* BRAND & USER HEADER */}
       <View style={styles.headerRow}>
         <View style={styles.logoBadge}>
-          <MaterialCommunityIcons name="bottle-soda-classic" size={24} color={colors.white} />
+          <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
         </View>
         <View style={styles.greetingWrap}>
           <View style={styles.companyRow}>
@@ -388,9 +391,12 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
           <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} />
           <View style={[styles.drawerPanel, { paddingTop: insets.top + 16 }]}>
             <View style={styles.drawerHeader}>
-              <View>
-                <Text style={styles.drawerTitle}>AP Enterprises</Text>
-                <Text style={styles.drawerSubtitle}>Premium B2B Beverage Supply</Text>
+              <View style={styles.drawerBrandRow}>
+                <Image source={logoSource} style={styles.drawerLogo} resizeMode="contain" />
+                <View>
+                  <Text style={styles.drawerTitle}>AP Enterprises</Text>
+                  <Text style={styles.drawerSubtitle}>Premium B2B Beverage Supply</Text>
+                </View>
               </View>
               <Pressable onPress={() => setDrawerOpen(false)} hitSlop={8}>
                 <MaterialCommunityIcons name="close" size={22} color={colors.textSecondary} />
@@ -514,11 +520,15 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: colors.primary,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
     ...shadows.card
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%'
   },
   greetingWrap: {
     flex: 1
@@ -816,6 +826,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors.border,
     marginBottom: 6
+  },
+  drawerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  drawerLogo: {
+    width: 38,
+    height: 38,
+    borderRadius: 10
   },
   drawerTitle: {
     color: colors.navy,

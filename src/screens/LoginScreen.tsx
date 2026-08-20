@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +12,8 @@ import {
   TextInput as NativeTextInput,
   View
 } from 'react-native';
+
+const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
@@ -109,7 +112,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         {/* BRAND HEADER */}
         <View style={styles.brandHeader}>
           <View style={styles.logoBadge}>
-            <MaterialCommunityIcons name="bottle-soda-classic" size={32} color={colors.white} />
+            <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
           </View>
           <Text style={styles.brandName}>AP Enterprises</Text>
           <View style={styles.taglinePill}>
@@ -289,14 +292,18 @@ const styles = StyleSheet.create({
     marginBottom: 24
   },
   logoBadge: {
-    width: 60,
-    height: 60,
+    width: 68,
+    height: 68,
     borderRadius: 20,
-    backgroundColor: colors.primary,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
     ...shadows.floating
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%'
   },
   brandName: {
     fontSize: 26,

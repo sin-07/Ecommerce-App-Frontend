@@ -3,6 +3,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,8 @@ import {
   TextInput as NativeTextInput,
   View
 } from 'react-native';
+
+const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { OtpInput, OtpInputHandle } from '../components/OtpInput';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { api } from '../constants/api';
@@ -268,7 +271,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           {/* HEADER */}
           <View style={styles.header}>
             <View style={styles.brandIconWrap}>
-              <MaterialCommunityIcons name="bottle-soda-classic" size={28} color={colors.white} />
+              <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
             </View>
             <View style={styles.headerBadge}>
               <Text style={styles.headerBadgeText}>AP ENTERPRISES</Text>
@@ -676,14 +679,18 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   brandIconWrap: {
-    width: 54,
-    height: 54,
+    width: 60,
+    height: 60,
     borderRadius: 18,
-    backgroundColor: colors.primary,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
     ...shadows.card
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%'
   },
   headerBadge: {
     backgroundColor: colors.infoSurface,

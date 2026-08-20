@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors } from '../constants/theme';
+import { Animated, Image, StyleSheet, Text, View } from 'react-native';
+import { colors, radius } from '../constants/theme';
+
+const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 
 export const SplashScreen: React.FC = () => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -26,8 +27,8 @@ export const SplashScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.brandWrap, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
-        <View style={styles.iconCircle}>
-          <MaterialCommunityIcons name="bottle-soda-classic-outline" size={42} color={colors.white} />
+        <View style={styles.logoCircle}>
+          <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
         </View>
         <Text style={styles.title}>AP Enterprises</Text>
         <View style={styles.badge}>
@@ -42,7 +43,7 @@ export const SplashScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24
@@ -51,42 +52,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10
   },
-  iconCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 24,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.3,
+  logoCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 28,
+    overflow: 'hidden',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 8
+    elevation: 10
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%'
   },
   title: {
-    color: colors.navy,
+    color: colors.white,
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: -0.5
   },
   badge: {
-    backgroundColor: colors.infoSurface,
-    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 14,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.infoBorder
+    borderColor: 'rgba(255, 255, 255, 0.15)'
   },
   badgeText: {
-    color: colors.primary,
+    color: '#F1F5F9',
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.2
   },
   subtitle: {
-    color: colors.textSecondary,
+    color: '#94A3B8',
     fontSize: 14,
     fontWeight: '500',
     marginTop: 4,
