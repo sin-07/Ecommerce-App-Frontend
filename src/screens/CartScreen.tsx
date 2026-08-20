@@ -222,7 +222,6 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     setSubmittingOrder(true);
-    const start = Date.now();
     try {
       const placed = await dispatch(
         placeOrder({
@@ -232,11 +231,6 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
           notes: orderNotes.trim()
         })
       ).unwrap();
-
-      const elapsed = Date.now() - start;
-      if (elapsed < 1800) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1800 - elapsed));
-      }
 
       const orderIdStr = String(placed?._id || '').slice(-6).toUpperCase();
       setPlacedOrderRef(orderIdStr || 'CONFIRMED');
@@ -248,10 +242,6 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
       toast.show('Order placed successfully! A confirmation email has been sent.', 'success', 'Order Confirmed');
       setSuccessModalVisible(true);
     } catch {
-      const elapsed = Date.now() - start;
-      if (elapsed < 1200) {
-        await new Promise((resolve) => setTimeout(() => resolve(true), 1200 - elapsed));
-      }
       Alert.alert('Order Failed', error || 'Unable to place order right now. Please try again.');
     } finally {
       setSubmittingOrder(false);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, LayoutAnimation, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, LayoutAnimation, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Product } from '../constants/types';
 import { API_BASE_URL } from '../constants/api';
@@ -7,6 +7,7 @@ import { colors, radius, shadows } from '../constants/theme';
 import { getStockLabel, getStockTone, getStockStatus } from '../utils/stock';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { toggleWishlist } from '../redux/slices/wishlistSlice';
+import { formatINR } from '../utils/currency';
 import { toast } from '../utils/toast';
 
 type Props = {
@@ -98,6 +99,8 @@ const ProductCardBase: React.FC<Props> = ({
       toast.success(`Added ${product.name} to wishlist ❤️`);
     }
   };
+
+  const isPending = Boolean(useAppSelector((state) => state.cart?.pendingItems?.[product._id]));
 
   return (
     <View style={[styles.card, compact && styles.compact]}>
@@ -194,8 +197,7 @@ const ProductCardBase: React.FC<Props> = ({
 
       {/* PRICING */}
       <View style={styles.priceRow}>
-        <Text style={styles.currencySymbol}>₹</Text>
-        <Text style={styles.price}>{Number(product.price).toFixed(2)}</Text>
+        <Text style={styles.price}>{formatINR(product.price)}</Text>
         {product.unit ? <Text style={styles.unit}>/{product.unit}</Text> : null}
         {product.discount ? (
           <View style={styles.discountBadge}>
@@ -220,17 +222,22 @@ const ProductCardBase: React.FC<Props> = ({
             <View style={styles.stepperWrap}>
               <Pressable
                 onPress={onDecrementCart}
-                style={styles.stepperButton}
+                disabled={isPending}
+                style={[styles.stepperButton, isPending && styles.disabled]}
                 hitSlop={6}
                 accessibilityLabel="Decrease quantity"
               >
                 <Ionicons name="remove" size={16} color={colors.primary} />
               </Pressable>
-              <Text style={styles.stepperCount}>{cartCount} in cart</Text>
+              {isPending ? (
+                <ActivityIndicator size="small" color={colors.primary} style={styles.stepperLoader} />
+              ) : (
+                <Text style={styles.stepperCount}>{cartCount} in cart</Text>
+              )}
               <Pressable
                 onPress={onIncrementCart}
-                disabled={isOutOfStock}
-                style={[styles.stepperButton, isOutOfStock && styles.disabled]}
+                disabled={isOutOfStock || isPending}
+                style={[styles.stepperButton, (isOutOfStock || isPending) && styles.disabled]}
                 hitSlop={6}
                 accessibilityLabel="Increase quantity"
               >
@@ -249,15 +256,24 @@ const ProductCardBase: React.FC<Props> = ({
               ) : null}
               <Pressable
                 onPress={onIncrementCart}
-                disabled={isOutOfStock}
+                disabled={isOutOfStock || isPending}
                 style={({ pressed }) => [
                   styles.addButton,
-                  isOutOfStock && styles.disabled,
-                  pressed && styles.pressed
+                  (isOutOfStock || isPending) && styles.disabled,
+                  pressed && !isPending && styles.pressed
                 ]}
               >
-                <Ionicons name="cart-outline" size={15} color={colors.white} />
-                <Text style={styles.addButtonText}>Add to Cart</Text>
+                {isPending ? (
+                  <View style={styles.btnLoadingRow}>
+                    <ActivityIndicator size="small" color={colors.white} style={styles.loaderSmall} />
+                    <Text style={styles.addButtonText}>Adding...</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Ionicons name="cart-outline" size={15} color={colors.white} />
+                    <Text style={styles.addButtonText}>Add to Cart</Text>
+                  </>
+                )}
               </Pressable>
             </View>
           )}
@@ -553,5 +569,18 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }]
+  },
+  btnLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4
+  },
+  loaderSmall: {
+    transform: [{ scale: 0.75 }]
+  },
+  stepperLoader: {
+    marginHorizontal: 8,
+    transform: [{ scale: 0.75 }]
   }
 });

@@ -57,6 +57,9 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
     setQuantity(moq);
   }, [resolved?._id, resolved?.minOrderQuantity, inCart]);
 
+  const pendingCartItems = useAppSelector((state) => state.cart?.pendingItems || {});
+  const isCartPending = Boolean(resolved?._id && pendingCartItems[resolved._id]);
+
   const relatedProducts = useMemo(() => {
     if (!resolved) return [];
     return allProducts
@@ -303,6 +306,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
           <AppButton
             title={inCart > 0 ? `Update Cart (${quantity} ${unitName}s)` : `Add ${quantity} ${unitName}${quantity === 1 ? '' : 's'} to Cart`}
             icon={inCart > 0 ? 'cart-check' : 'cart-plus'}
+            loading={isCartPending}
             onPress={addOrUpdateCart}
             disabled={isOutOfStock}
           />
@@ -311,7 +315,7 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
             icon="flash"
             variant="secondary"
             onPress={handleBuyNow}
-            disabled={isOutOfStock}
+            disabled={isOutOfStock || isCartPending}
           />
         </View>
       </View>

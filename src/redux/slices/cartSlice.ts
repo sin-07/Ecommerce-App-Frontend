@@ -6,12 +6,14 @@ import { CartItem } from '../../constants/types';
 type CartState = {
   items: CartItem[];
   loading: boolean;
+  pendingItems: Record<string, boolean>; // productId -> boolean
   error: string | null;
 };
 
 const initialState: CartState = {
   items: [],
   loading: false,
+  pendingItems: {},
   error: null
 };
 
@@ -120,17 +122,43 @@ const cartSlice = createSlice({
           state.items = action.payload;
         }
       })
+      // ADD ITEM PENDING / FULFILLED / REJECTED
+      .addCase(addCartItem.pending, (state, action) => {
+        state.pendingItems[action.meta.arg.productId] = true;
+      })
       .addCase(addCartItem.fulfilled, (state, action) => {
+        delete state.pendingItems[action.meta.arg.productId];
         state.items = action.payload;
+      })
+      .addCase(addCartItem.rejected, (state, action) => {
+        delete state.pendingItems[action.meta.arg.productId];
+      })
+      // UPDATE ITEM PENDING / FULFILLED / REJECTED
+      .addCase(updateCartItem.pending, (state, action) => {
+        state.pendingItems[action.meta.arg.productId] = true;
       })
       .addCase(updateCartItem.fulfilled, (state, action) => {
+        delete state.pendingItems[action.meta.arg.productId];
         state.items = action.payload;
+      })
+      .addCase(updateCartItem.rejected, (state, action) => {
+        delete state.pendingItems[action.meta.arg.productId];
+      })
+      // REMOVE ITEM PENDING / FULFILLED / REJECTED
+      .addCase(removeCartItem.pending, (state, action) => {
+        state.pendingItems[action.meta.arg] = true;
       })
       .addCase(removeCartItem.fulfilled, (state, action) => {
+        delete state.pendingItems[action.meta.arg];
         state.items = action.payload;
       })
+      .addCase(removeCartItem.rejected, (state, action) => {
+        delete state.pendingItems[action.meta.arg];
+      })
+      // CLEAR CART
       .addCase(clearCart.fulfilled, (state, action) => {
         state.items = action.payload;
+        state.pendingItems = {};
       });
   }
 });

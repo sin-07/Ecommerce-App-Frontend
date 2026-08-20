@@ -67,7 +67,7 @@ type Props = {
 
 const AUTO_SLIDE_DEFAULT = 4500;
 
-export const PromoBannerCarousel: React.FC<Props> = ({
+const PromoBannerCarouselBase: React.FC<Props> = ({
   slides = DEFAULT_PROMO_SLIDES,
   onSelectCategory,
   autoSlideInterval = AUTO_SLIDE_DEFAULT
@@ -401,3 +401,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border
   }
 });
+
+export const PromoBannerCarousel = React.memo(PromoBannerCarouselBase);
+

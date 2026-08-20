@@ -7,6 +7,7 @@ import {
   Easing,
   FlatList,
   Image,
+  LayoutAnimation,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -82,17 +83,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     dispatch(loadWishlist());
   }, [dispatch]);
 
-  const totalCartItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-
-  // Cart badge spring animation
-  useEffect(() => {
-    if (totalCartItems > 0) {
-      Animated.sequence([
-        Animated.timing(cartScale, { toValue: 1.25, duration: 120, useNativeDriver: true }),
-        Animated.spring(cartScale, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true })
-      ]).start();
-    }
-  }, [totalCartItems, cartScale]);
 
   // Drawer Open / Close Animation
   const openDrawer = () => {
@@ -131,18 +121,19 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   };
 
-  // Debounced search and filter
+  // Instant filter or debounced search
   useEffect(() => {
+    let sortBy = 'newest';
+    let isFeatured: boolean | undefined;
+    let isBestSeller: boolean | undefined;
+
+    if (selectedFilter === 'featured') isFeatured = true;
+    if (selectedFilter === 'bestseller') isBestSeller = true;
+    if (selectedFilter === 'price_low') sortBy = 'price_asc';
+    if (selectedFilter === 'price_high') sortBy = 'price_desc';
+
+    const delay = search ? 280 : 0;
     const timer = setTimeout(() => {
-      let sortBy = 'newest';
-      let isFeatured: boolean | undefined;
-      let isBestSeller: boolean | undefined;
-
-      if (selectedFilter === 'featured') isFeatured = true;
-      if (selectedFilter === 'bestseller') isBestSeller = true;
-      if (selectedFilter === 'price_low') sortBy = 'price_asc';
-      if (selectedFilter === 'price_high') sortBy = 'price_desc';
-
       dispatch(
         fetchProducts({
           page: 1,
@@ -154,7 +145,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           sortBy
         })
       );
-    }, 320);
+    }, delay);
 
     return () => clearTimeout(timer);
   }, [dispatch, search, category, selectedFilter]);
@@ -196,6 +187,29 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     },
     [cartItems]
   );
+
+  const totalCartItems = useMemo(
+    () => cartItems.reduce((acc, item) => acc + item.quantity, 0),
+    [cartItems]
+  );
+
+  useEffect(() => {
+    if (totalCartItems > 0) {
+      Animated.sequence([
+        Animated.timing(cartScale, {
+          toValue: 1.25,
+          duration: 120,
+          useNativeDriver: true
+        }),
+        Animated.spring(cartScale, {
+          toValue: 1,
+          friction: 4,
+          tension: 40,
+          useNativeDriver: true
+        })
+      ]).start();
+    }
+  }, [totalCartItems, cartScale]);
 
   const incrementProduct = useCallback(
     async (productId: string, minOrderQuantity: number) => {
@@ -240,6 +254,16 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     [dispatch, getCartQuantityForProduct]
   );
 
+  const handleSelectCategory = useCallback((catId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCategory(catId);
+  }, []);
+
+  const handleSelectFilter = useCallback((filter: 'all' | 'featured' | 'bestseller' | 'price_low' | 'price_high') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedFilter(filter);
+  }, []);
+
   const renderProductItem = useCallback(
     ({ item }: { item: Product }) => (
       <View style={styles.productCell}>
@@ -257,7 +281,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     [getCartQuantityForProduct, incrementProduct, decrementProduct, navigation]
   );
 
-  const renderHeader = () => (
+  const renderHeader = useMemo(() => (
     <View style={styles.headerSection}>
       {/* BRAND & USER APP BAR */}
       <View style={styles.headerRow}>
@@ -325,7 +349,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       {/* HERO / PROMO BANNER CAROUSEL */}
       {!search && (
         <PromoBannerCarousel
-          onSelectCategory={(cat) => setCategory(cat)}
+          onSelectCategory={handleSelectCategory}
         />
       )}
 
@@ -339,7 +363,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               <TouchableOpacity
                 key={cat.id || 'all'}
                 activeOpacity={0.8}
-                onPress={() => setCategory(cat.id)}
+                onPress={() => handleSelectCategory(cat.id)}
                 style={[styles.categoryTab, isSelected && styles.categoryTabActive]}
               >
                 <MaterialCommunityIcons
@@ -359,7 +383,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       {/* FILTER CHIPS */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipScroll}>
         <TouchableOpacity
-          onPress={() => setSelectedFilter('all')}
+          onPress={() => handleSelectFilter('all')}
           style={[styles.filterChip, selectedFilter === 'all' && styles.filterChipActive]}
         >
           <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
@@ -368,7 +392,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => setSelectedFilter('featured')}
+          onPress={() => handleSelectFilter('featured')}
           style={[styles.filterChip, selectedFilter === 'featured' && styles.filterChipActive]}
         >
           <Text style={[styles.filterChipText, selectedFilter === 'featured' && styles.filterChipTextActive]}>
@@ -377,7 +401,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => setSelectedFilter('bestseller')}
+          onPress={() => handleSelectFilter('bestseller')}
           style={[styles.filterChip, selectedFilter === 'bestseller' && styles.filterChipActive]}
         >
           <Text style={[styles.filterChipText, selectedFilter === 'bestseller' && styles.filterChipTextActive]}>
@@ -386,7 +410,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => setSelectedFilter('price_low')}
+          onPress={() => handleSelectFilter('price_low')}
           style={[styles.filterChip, selectedFilter === 'price_low' && styles.filterChipActive]}
         >
           <Text style={[styles.filterChipText, selectedFilter === 'price_low' && styles.filterChipTextActive]}>
@@ -395,7 +419,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => setSelectedFilter('price_high')}
+          onPress={() => handleSelectFilter('price_high')}
           style={[styles.filterChip, selectedFilter === 'price_high' && styles.filterChipActive]}
         >
           <Text style={[styles.filterChipText, selectedFilter === 'price_high' && styles.filterChipTextActive]}>
@@ -414,7 +438,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         </Text>
       </View>
     </View>
-  );
+  ), [user?.name, wishlistItems.length, search, category, selectedFilter, items.length, handleSelectCategory, handleSelectFilter]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -627,9 +651,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               <TouchableOpacity
                 style={[styles.drawerItem, styles.drawerLogout]}
                 onPress={() => {
-                  closeDrawer(async () => {
-                    setLoggingOut(true);
-                    await new Promise((resolve) => setTimeout(() => resolve(true), 1200));
+                  closeDrawer(() => {
                     dispatch(logout());
                   });
                 }}
