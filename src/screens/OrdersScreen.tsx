@@ -158,8 +158,12 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   useEffect(() => {
+    if (!user) {
+      setIsInitialLoading(false);
+      return;
+    }
     loadOrders(false);
-  }, [loadOrders]);
+  }, [user, loadOrders]);
 
   const toggleExpand = (orderId: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -228,7 +232,17 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {header}
 
-      {showSkeleton ? (
+      {!user ? (
+        <View style={styles.emptyWrap}>
+          <EmptyState
+            icon="lock-outline"
+            title="Sign In Required"
+            description="Please sign in or create an account to view and track your wholesale orders and invoices."
+            actionLabel="Sign In"
+            onAction={() => navigation.navigate('Login')}
+          />
+        </View>
+      ) : showSkeleton ? (
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 20) }]}

@@ -43,21 +43,16 @@ export const RootNavigator: React.FC = () => {
       <Stack.Navigator screenOptions={screenOptions}>
         {restoring ? <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} /> : null}
 
-        {!restoring && !user ? (
+        {!restoring && user?.role === 'admin' ? (
           <>
-            <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Wholesale Account' }} />
-          </>
-        ) : null}
-
-        {!restoring && user?.role === 'buyer' ? (
-          <>
-            <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="AdminProducts" component={AdminProductsScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="AddProduct" component={AddProductScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} options={{ title: 'Edit Product' }} />
             <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
-            <Stack.Screen name="Cart" component={CartScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
           </>
         ) : null}
 
@@ -72,15 +67,16 @@ export const RootNavigator: React.FC = () => {
           </>
         ) : null}
 
-        {!restoring && user?.role === 'admin' ? (
+        {!restoring && (!user || user?.role === 'buyer') ? (
           <>
-            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AdminProducts" component={AdminProductsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AddProduct" component={AddProductScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} options={{ title: 'Edit Product' }} />
+            <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} options={{ title: 'Product Details' }} />
             <Stack.Screen name="Wishlist" component={WishlistScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
+            <Stack.Screen name="Cart" component={CartScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Chat' }} />
+            <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false }} />
           </>
         ) : null}
       </Stack.Navigator>

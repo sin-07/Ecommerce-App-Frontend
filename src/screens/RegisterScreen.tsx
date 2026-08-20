@@ -23,7 +23,9 @@ import { api } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
-import { register, verifyOtp } from '../redux/slices/authSlice';
+import { clearPendingAction, register, verifyOtp } from '../redux/slices/authSlice';
+import { addCartItem } from '../redux/slices/cartSlice';
+import { toggleWishlist } from '../redux/slices/wishlistSlice';
 import { toast } from '../utils/toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
@@ -39,7 +41,7 @@ const maskEmail = (value: string) => {
 
 export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
-  const { loading } = useAppSelector((state) => state.auth);
+  const { loading, pendingAction } = useAppSelector((state) => state.auth);
 
   // Form State - all fields start EMPTY initially
   const [name, setName] = useState('');
@@ -254,7 +256,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     setSubmitting(true);
 
     try {
-      await dispatch(
+      const session = await dispatch(
         register({
           name: name.trim(),
           companyName: companyName.trim(),
@@ -266,6 +268,50 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         })
       ).unwrap();
       toast.show('Wholesale account created successfully! ✓', 'success', 'Welcome!');
+
+      // Fulfill pending action if one exists for buyer
+      if (pendingAction && session?.user?.role === 'buyer') {
+        const action = pendingAction;
+        dispatch(clearPendingAction());
+
+        if (action.type === 'ADD_TO_CART') {
+          try {
+            await dispatch(addCartItem({ productId: action.productId, quantity: action.quantity || 1 })).unwrap();
+            toast.show(`Added ${action.product?.name || 'product'} to cart ✓`, 'success');
+          } catch {}
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('Home');
+          }
+          return;
+        }
+
+        if (action.type === 'BUY_NOW') {
+          try {
+            await dispatch(addCartItem({ productId: action.productId, quantity: action.quantity || 1 })).unwrap();
+          } catch {}
+          navigation.navigate('Cart');
+          return;
+        }
+
+        if (action.type === 'WISHLIST' && action.product) {
+          dispatch(toggleWishlist(action.product));
+          toast.show(`Added ${action.product.name} to wishlist ❤️`, 'success');
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('Home');
+          }
+          return;
+        }
+      }
+
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Home');
+      }
     } catch (registrationError: any) {
       const message = String(registrationError || 'Something went wrong. Please try again.');
       setError(message);
@@ -296,6 +342,21 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
       >
         <Animated.View style={[styles.mainCard, { opacity: entrance }]}>
+          {/* BACK TO CATALOG */}
+          {navigation.canGoBack() ? (
+            <View style={styles.topNavRow}>
+              <Pressable
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
+                hitSlop={8}
+                accessibilityLabel="Back to catalog"
+              >
+                <MaterialCommunityIcons name="arrow-left" size={20} color={colors.primary} />
+                <Text style={styles.backButtonText}>Back to Catalog</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {/* HEADER */}
           <View style={styles.header}>
             <View style={styles.brandIconWrap}>
@@ -723,6 +784,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     ...shadows.card
+  },
+  topNavRow: {
+    marginBottom: 10,
+    alignSelf: 'flex-start'
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+    backgroundColor: '#EFF6FF'
+  },
+  backButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary
   },
   header: {
     alignItems: 'center',

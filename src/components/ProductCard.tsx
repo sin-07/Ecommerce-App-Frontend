@@ -16,6 +16,7 @@ type Props = {
   onIncrementCart?: () => void;
   onDecrementCart?: () => void;
   onOpenCart?: () => void;
+  onRequireAuth?: (action: 'cart' | 'wishlist', product: Product, quantity?: number) => void;
   cartCount?: number;
   compact?: boolean;
 };
@@ -58,10 +59,12 @@ const ProductCardBase: React.FC<Props> = ({
   onIncrementCart,
   onDecrementCart,
   onOpenCart,
+  onRequireAuth,
   cartCount = 0,
   compact
 }) => {
   const dispatch = useAppDispatch();
+  const user = useAppSelector((state) => state.auth.user);
   const wishlistItems = useAppSelector((state) => state.wishlist?.items || []);
   const isWishlisted = wishlistItems.some((item) => item._id === product._id);
 
@@ -92,12 +95,32 @@ const ProductCardBase: React.FC<Props> = ({
   const catTone = getCategoryBadgeTone(product.category);
 
   const handleToggleWishlist = () => {
+    if (!user) {
+      if (onRequireAuth) onRequireAuth('wishlist', product);
+      return;
+    }
     dispatch(toggleWishlist(product));
     if (isWishlisted) {
       toast.info(`Removed ${product.name} from wishlist`);
     } else {
       toast.success(`Added ${product.name} to wishlist ❤️`);
     }
+  };
+
+  const handleIncrementPress = () => {
+    if (!user) {
+      if (onRequireAuth) onRequireAuth('cart', product, moq);
+      return;
+    }
+    if (onIncrementCart) onIncrementCart();
+  };
+
+  const handleDecrementPress = () => {
+    if (!user) {
+      if (onRequireAuth) onRequireAuth('cart', product, moq);
+      return;
+    }
+    if (onDecrementCart) onDecrementCart();
   };
 
   const isPending = Boolean(useAppSelector((state) => state.cart?.pendingItems?.[product._id]));
@@ -221,7 +244,7 @@ const ProductCardBase: React.FC<Props> = ({
           {cartCount > 0 ? (
             <View style={styles.stepperWrap}>
               <Pressable
-                onPress={onDecrementCart}
+                onPress={handleDecrementPress}
                 disabled={isPending}
                 style={[styles.stepperButton, isPending && styles.disabled]}
                 hitSlop={6}
@@ -235,7 +258,7 @@ const ProductCardBase: React.FC<Props> = ({
                 <Text style={styles.stepperCount}>{cartCount} in cart</Text>
               )}
               <Pressable
-                onPress={onIncrementCart}
+                onPress={handleIncrementPress}
                 disabled={isOutOfStock || isPending}
                 style={[styles.stepperButton, (isOutOfStock || isPending) && styles.disabled]}
                 hitSlop={6}
@@ -255,7 +278,7 @@ const ProductCardBase: React.FC<Props> = ({
                 </Pressable>
               ) : null}
               <Pressable
-                onPress={onIncrementCart}
+                onPress={handleIncrementPress}
                 disabled={isOutOfStock || isPending}
                 style={({ pressed }) => [
                   styles.addButton,

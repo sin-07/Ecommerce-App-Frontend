@@ -1,7 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { api, API_BASE_URL } from '../../constants/api';
-import { User } from '../../constants/types';
+import { Product, User } from '../../constants/types';
+
+export type PendingCommerceAction = {
+  type: 'ADD_TO_CART' | 'BUY_NOW' | 'WISHLIST';
+  productId: string;
+  product?: Product;
+  quantity?: number;
+} | null;
 
 type AuthState = {
   user: User | null;
@@ -9,6 +16,7 @@ type AuthState = {
   loading: boolean;
   restoring: boolean;
   error: string | null;
+  pendingAction: PendingCommerceAction;
 };
 
 const initialState: AuthState = {
@@ -16,7 +24,8 @@ const initialState: AuthState = {
   token: null,
   loading: false,
   restoring: true,
-  error: null
+  error: null,
+  pendingAction: null
 };
 
 const setTokenHeader = (token: string | null) => {
@@ -142,7 +151,14 @@ export const logout = createAsyncThunk('auth/logout', async () => {
 const authSlice = createSlice({
   name: 'auth',
   initialState,
-  reducers: {},
+  reducers: {
+    setPendingAction: (state, action: PayloadAction<PendingCommerceAction>) => {
+      state.pendingAction = action.payload;
+    },
+    clearPendingAction: (state) => {
+      state.pendingAction = null;
+    }
+  },
   extraReducers: (builder) => {
     builder
       .addCase(restoreSession.fulfilled, (state, action) => {
@@ -182,8 +198,10 @@ const authSlice = createSlice({
       .addCase(logout.fulfilled, (state) => {
         state.user = null;
         state.token = null;
+        state.pendingAction = null;
       });
   }
 });
 
+export const { setPendingAction, clearPendingAction } = authSlice.actions;
 export default authSlice.reducer;

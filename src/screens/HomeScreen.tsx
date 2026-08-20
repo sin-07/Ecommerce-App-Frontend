@@ -23,6 +23,7 @@ import {
 
 const logoSource = require('../../assets/Ap-Enterprises.jpeg');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AuthPromptAction, AuthPromptModal } from '../components/AuthPromptModal';
 import { ProductCard } from '../components/ProductCard';
 import { ProductCardSkeleton } from '../components/ProductCardSkeleton';
 import { BeverageLoader } from '../components/BeverageLoader';
@@ -33,7 +34,7 @@ import { colors, radius, shadows } from '../constants/theme';
 import { Product } from '../constants/types';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
-import { logout } from '../redux/slices/authSlice';
+import { logout, setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
 import { clearProducts, fetchProducts, fetchCategories, setCachedProducts } from '../redux/slices/productSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
@@ -101,6 +102,52 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [developerNoteVisible, setDeveloperNoteVisible] = useState(false);
+
+  // Auth Prompt Modal State for Guest Users
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [authModalAction, setAuthModalAction] = useState<AuthPromptAction>('general');
+  const [authModalProduct, setAuthModalProduct] = useState<Product | null>(null);
+  const [authModalQuantity, setAuthModalQuantity] = useState(1);
+
+  const triggerAuthPrompt = useCallback(
+    (action: AuthPromptAction, product?: Product, quantity?: number) => {
+      setAuthModalAction(action);
+      setAuthModalProduct(product || null);
+      setAuthModalQuantity(quantity || 1);
+      setAuthModalVisible(true);
+    },
+    []
+  );
+
+  const handleAuthModalSignIn = useCallback(() => {
+    if (authModalProduct) {
+      dispatch(
+        setPendingAction({
+          type: authModalAction === 'wishlist' ? 'WISHLIST' : authModalAction === 'buy_now' ? 'BUY_NOW' : 'ADD_TO_CART',
+          productId: authModalProduct._id,
+          product: authModalProduct,
+          quantity: authModalQuantity
+        })
+      );
+    }
+    setAuthModalVisible(false);
+    navigation.navigate('Login');
+  }, [dispatch, authModalProduct, authModalAction, authModalQuantity, navigation]);
+
+  const handleAuthModalSignUp = useCallback(() => {
+    if (authModalProduct) {
+      dispatch(
+        setPendingAction({
+          type: authModalAction === 'wishlist' ? 'WISHLIST' : authModalAction === 'buy_now' ? 'BUY_NOW' : 'ADD_TO_CART',
+          productId: authModalProduct._id,
+          product: authModalProduct,
+          quantity: authModalQuantity
+        })
+      );
+    }
+    setAuthModalVisible(false);
+    navigation.navigate('Register');
+  }, [dispatch, authModalProduct, authModalAction, authModalQuantity, navigation]);
 
   // In-Memory Category & Filter Cache for Instant Switching
   const categoryCacheRef = useRef<Record<string, { items: Product[]; page: number; totalPages: number }>>({});
@@ -445,11 +492,20 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
           onView={() => navigation.navigate('ProductDetails', { productId: item._id, product: item })}
           onIncrementCart={() => incrementProduct(item._id, item.minOrderQuantity || 1)}
           onDecrementCart={() => decrementProduct(item._id)}
-          onOpenCart={() => navigation.navigate('Cart')}
+          onOpenCart={() => {
+            if (!user) {
+              triggerAuthPrompt('cart');
+            } else {
+              navigation.navigate('Cart');
+            }
+          }}
+          onRequireAuth={(action, product, qty) =>
+            triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart', product, qty)
+          }
         />
       </AnimatedProductCell>
     ),
-    [getCartQuantityForProduct, incrementProduct, decrementProduct, navigation]
+    [getCartQuantityForProduct, incrementProduct, decrementProduct, navigation, user, triggerAuthPrompt]
   );
 
   const renderHeader = useMemo(
@@ -468,23 +524,35 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
             </View>
             <Text style={styles.greeting} numberOfLines={1}>
-              Hello, {user?.name?.split(' ')[0] || 'Wholesale Buyer'}
+              {user ? `Hello, ${user.name?.split(' ')[0] || 'Wholesale Buyer'}` : 'Browse Wholesale Catalog'}
             </Text>
           </View>
           <View style={styles.topActionBtns}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => navigation.navigate('Wishlist')}
-              hitSlop={6}
-              accessibilityLabel="Open wishlist"
-            >
-              <Ionicons name="heart-outline" size={21} color={colors.text} />
-              {wishlistItems.length > 0 && (
-                <View style={styles.iconBadge}>
-                  <Text style={styles.iconBadgeText}>{wishlistItems.length}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+            {!user ? (
+              <TouchableOpacity
+                style={styles.headerSignInPill}
+                onPress={() => navigation.navigate('Login')}
+                activeOpacity={0.85}
+                accessibilityLabel="Sign in to wholesale portal"
+              >
+                <MaterialCommunityIcons name="login" size={15} color={colors.white} />
+                <Text style={styles.headerSignInPillText}>Sign In</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => navigation.navigate('Wishlist')}
+                hitSlop={6}
+                accessibilityLabel="Open wishlist"
+              >
+                <Ionicons name="heart-outline" size={21} color={colors.text} />
+                {wishlistItems.length > 0 && (
+                  <View style={styles.iconBadge}>
+                    <Text style={styles.iconBadgeText}>{wishlistItems.length}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={styles.iconButton}
@@ -773,6 +841,34 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.drawerScroll}>
+              {/* GUEST WELCOME CARD */}
+              {!user ? (
+                <View style={styles.drawerGuestCard}>
+                  <Text style={styles.drawerGuestTitle}>Wholesale Trade Access</Text>
+                  <Text style={styles.drawerGuestSubtitle}>
+                    Sign in to unlock wholesale case pricing, place bulk orders, and dispatch deliveries.
+                  </Text>
+                  <View style={styles.drawerGuestButtons}>
+                    <TouchableOpacity
+                      style={styles.drawerSignInBtn}
+                      activeOpacity={0.88}
+                      onPress={() => closeDrawer(() => navigation.navigate('Login'))}
+                    >
+                      <MaterialCommunityIcons name="login" size={16} color={colors.white} />
+                      <Text style={styles.drawerSignInBtnText}>Sign In</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.drawerSignUpBtn}
+                      activeOpacity={0.88}
+                      onPress={() => closeDrawer(() => navigation.navigate('Register'))}
+                    >
+                      <MaterialCommunityIcons name="account-plus-outline" size={16} color={colors.primary} />
+                      <Text style={styles.drawerSignUpBtnText}>Create Account</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+
               {/* NAVIGATION MENU ITEMS */}
               <TouchableOpacity
                 style={styles.drawerItem}
@@ -829,11 +925,17 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => navigation.navigate('Wishlist'))}
+                onPress={() => closeDrawer(() => {
+                  if (!user) {
+                    triggerAuthPrompt('wishlist');
+                  } else {
+                    navigation.navigate('Wishlist');
+                  }
+                })}
               >
                 <Ionicons name="heart-outline" size={20} color="#EF4444" />
                 <Text style={styles.drawerItemText}>My Wishlist</Text>
-                {wishlistItems.length > 0 && (
+                {user && wishlistItems.length > 0 && (
                   <View style={[styles.drawerBadge, { backgroundColor: '#FEE2E2' }]}>
                     <Text style={[styles.drawerBadgeText, { color: '#DC2626' }]}>{wishlistItems.length}</Text>
                   </View>
@@ -842,11 +944,17 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => navigation.navigate('Cart'))}
+                onPress={() => closeDrawer(() => {
+                  if (!user) {
+                    triggerAuthPrompt('cart');
+                  } else {
+                    navigation.navigate('Cart');
+                  }
+                })}
               >
                 <Ionicons name="cart-outline" size={20} color={colors.primary} />
                 <Text style={styles.drawerItemText}>Shopping Cart</Text>
-                {totalCartItems > 0 && (
+                {user && totalCartItems > 0 && (
                   <View style={styles.drawerBadge}>
                     <Text style={styles.drawerBadgeText}>{totalCartItems}</Text>
                   </View>
@@ -855,7 +963,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
               <TouchableOpacity
                 style={styles.drawerItem}
-                onPress={() => closeDrawer(() => navigation.navigate('Orders'))}
+                onPress={() => closeDrawer(() => {
+                  if (!user) {
+                    triggerAuthPrompt('orders');
+                  } else {
+                    navigation.navigate('Orders');
+                  }
+                })}
               >
                 <Ionicons name="clipboard-outline" size={20} color={colors.primary} />
                 <Text style={styles.drawerItemText}>My Orders & Tracking</Text>
@@ -889,17 +1003,19 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.drawerItem, styles.drawerLogout]}
-                onPress={() => {
-                  closeDrawer(() => {
-                    dispatch(logout());
-                  });
-                }}
-              >
-                <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-                <Text style={[styles.drawerItemText, { color: colors.danger }]}>Log Out</Text>
-              </TouchableOpacity>
+              {user ? (
+                <TouchableOpacity
+                  style={[styles.drawerItem, styles.drawerLogout]}
+                  onPress={() => {
+                    closeDrawer(() => {
+                      dispatch(logout());
+                    });
+                  }}
+                >
+                  <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+                  <Text style={[styles.drawerItemText, { color: colors.danger }]}>Log Out</Text>
+                </TouchableOpacity>
+              ) : null}
             </ScrollView>
           </Animated.View>
         </View>
@@ -922,16 +1038,35 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
       {/* FLOATING CART ACTION */}
       <TouchableOpacity
         activeOpacity={0.9}
-        accessibilityLabel={`Open shopping cart with ${totalCartItems} items`}
-        onPress={() => navigation.navigate('Cart')}
+        accessibilityLabel={`Open shopping cart`}
+        onPress={() => {
+          if (!user) {
+            triggerAuthPrompt('cart');
+          } else {
+            navigation.navigate('Cart');
+          }
+        }}
         style={[styles.floatingCart, { bottom: Math.max(16, insets.bottom + 12) }]}
       >
         <Ionicons name="cart" size={20} color={colors.white} />
         <Text style={styles.floatingCartText}>Cart</Text>
-        <Animated.View style={[styles.cartBadge, { transform: [{ scale: cartScale }] }]}>
-          <Text style={styles.cartBadgeText}>{totalCartItems}</Text>
-        </Animated.View>
+        {user && totalCartItems > 0 ? (
+          <Animated.View style={[styles.cartBadge, { transform: [{ scale: cartScale }] }]}>
+            <Text style={styles.cartBadgeText}>{totalCartItems}</Text>
+          </Animated.View>
+        ) : null}
       </TouchableOpacity>
+
+      {/* AUTH PROMPT MODAL FOR GUESTS */}
+      <AuthPromptModal
+        visible={authModalVisible}
+        action={authModalAction}
+        product={authModalProduct}
+        quantity={authModalQuantity}
+        onClose={() => setAuthModalVisible(false)}
+        onSignIn={handleAuthModalSignIn}
+        onSignUp={handleAuthModalSignUp}
+      />
     </SafeAreaView>
   );
 };
@@ -1282,6 +1417,78 @@ const styles = StyleSheet.create({
   drawerBadgeText: {
     color: colors.primary,
     fontSize: 11,
+    fontWeight: '800'
+  },
+  drawerGuestCard: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: radius.lg,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    gap: 8
+  },
+  drawerGuestTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.navy
+  },
+  drawerGuestSubtitle: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: colors.textSecondary
+  },
+  drawerGuestButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4
+  },
+  drawerSignInBtn: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6
+  },
+  drawerSignInBtnText: {
+    color: colors.white,
+    fontSize: 12.5,
+    fontWeight: '700'
+  },
+  drawerSignUpBtn: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4
+  },
+  drawerSignUpBtnText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  headerSignInPill: {
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    marginRight: 4,
+    ...shadows.sm
+  },
+  headerSignInPillText: {
+    color: colors.white,
+    fontSize: 12.5,
     fontWeight: '800'
   },
   drawerDivider: {

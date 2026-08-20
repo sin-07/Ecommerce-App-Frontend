@@ -139,9 +139,11 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const [placedOrderRef, setPlacedOrderRef] = useState<string>('');
 
   useEffect(() => {
-    dispatch(hydrateCart());
-    dispatch(fetchCart());
-  }, [dispatch]);
+    if (user) {
+      dispatch(hydrateCart());
+      dispatch(fetchCart());
+    }
+  }, [dispatch, user]);
 
   // Update pre-filled fields if user profile updates
   useEffect(() => {
@@ -321,6 +323,23 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
     ),
     [navigation, items.length, summary.totalCases]
   );
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        {header}
+        <View style={styles.emptyWrap}>
+          <EmptyState
+            icon="lock-outline"
+            title="Sign In Required"
+            description="Sign in or create a wholesale trade account to build your cart, calculate tax, and place orders."
+            actionLabel="Sign In"
+            onAction={() => navigation.navigate('Login')}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) {
     return (

@@ -3,12 +3,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { AppButton } from '../components/AppButton';
+import { AuthPromptAction, AuthPromptModal } from '../components/AuthPromptModal';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { API_BASE_URL } from '../constants/api';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { colors, radius, shadows } from '../constants/theme';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
 import { RootStackParamList } from '../navigation/types';
+import { setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, hydrateCart, updateCartItem } from '../redux/slices/cartSlice';
 import { fetchProductById } from '../redux/slices/productSlice';
 import { toggleWishlist } from '../redux/slices/wishlistSlice';
@@ -22,9 +24,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetails'>;
 export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => {
   const { productId, product } = route.params;
   const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state) => state.auth);
   const { selected, items: allProducts, loading, error } = useAppSelector((state) => state.products);
   const { items: cartItems } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
+
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [authModalAction, setAuthModalAction] = useState<AuthPromptAction>('cart');
 
   const activeProduct = selected?._id === productId ? selected : product;
   const resolved = activeProduct?._id === productId ? activeProduct : selected;
@@ -87,7 +93,46 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
     setQuantity((prev) => Math.min(maxQty, prev + 1));
   };
 
+  const triggerAuthPrompt = (action: AuthPromptAction) => {
+    setAuthModalAction(action);
+    setAuthModalVisible(true);
+  };
+
+  const handleAuthModalSignIn = () => {
+    if (resolved) {
+      dispatch(
+        setPendingAction({
+          type: authModalAction === 'wishlist' ? 'WISHLIST' : authModalAction === 'buy_now' ? 'BUY_NOW' : 'ADD_TO_CART',
+          productId: resolved._id,
+          product: resolved,
+          quantity
+        })
+      );
+    }
+    setAuthModalVisible(false);
+    navigation.navigate('Login');
+  };
+
+  const handleAuthModalSignUp = () => {
+    if (resolved) {
+      dispatch(
+        setPendingAction({
+          type: authModalAction === 'wishlist' ? 'WISHLIST' : authModalAction === 'buy_now' ? 'BUY_NOW' : 'ADD_TO_CART',
+          productId: resolved._id,
+          product: resolved,
+          quantity
+        })
+      );
+    }
+    setAuthModalVisible(false);
+    navigation.navigate('Register');
+  };
+
   const handleWishlist = () => {
+    if (!user) {
+      triggerAuthPrompt('wishlist');
+      return;
+    }
     dispatch(toggleWishlist(resolved));
     if (isWishlisted) {
       toast.info(`Removed ${resolved.name} from wishlist`);
@@ -97,6 +142,11 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
   };
 
   const addOrUpdateCart = async () => {
+    if (!user) {
+      triggerAuthPrompt('cart');
+      return;
+    }
+
     if (isOutOfStock) {
       toast.error('This product is currently out of stock.');
       return;
@@ -126,6 +176,10 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
   };
 
   const handleBuyNow = async () => {
+    if (!user) {
+      triggerAuthPrompt('buy_now');
+      return;
+    }
     await addOrUpdateCart();
     navigation.navigate('Cart');
   };
@@ -332,15 +386,31 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
                   compact
                   onView={() => navigation.push('ProductDetails', { productId: item._id, product: item })}
                   onIncrementCart={() => {
-                    dispatch(addCartItem({ productId: item._id, quantity: item.minOrderQuantity || 1 }));
-                    toast.success(`Added ${item.name} to cart.`);
+                    if (!user) {
+                      triggerAuthPrompt('cart');
+                    } else {
+                      dispatch(addCartItem({ productId: item._id, quantity: item.minOrderQuantity || 1 }));
+                      toast.success(`Added ${item.name} to cart.`);
+                    }
                   }}
+                  onRequireAuth={(action) => triggerAuthPrompt(action === 'wishlist' ? 'wishlist' : 'cart')}
                 />
               </View>
             ))}
           </View>
         </View>
       )}
+
+      {/* AUTH PROMPT MODAL FOR GUESTS */}
+      <AuthPromptModal
+        visible={authModalVisible}
+        action={authModalAction}
+        product={resolved}
+        quantity={quantity}
+        onClose={() => setAuthModalVisible(false)}
+        onSignIn={handleAuthModalSignIn}
+        onSignUp={handleAuthModalSignUp}
+      />
     </ScreenContainer>
   );
 };

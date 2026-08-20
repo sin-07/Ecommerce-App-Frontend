@@ -20,7 +20,9 @@ import { BeverageLoader } from '../components/BeverageLoader';
 import { DeveloperNoteModal } from '../components/DeveloperNoteModal';
 import { colors, radius, shadows } from '../constants/theme';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
-import { login } from '../redux/slices/authSlice';
+import { clearPendingAction, login } from '../redux/slices/authSlice';
+import { addCartItem } from '../redux/slices/cartSlice';
+import { toggleWishlist } from '../redux/slices/wishlistSlice';
 import { RootStackParamList } from '../navigation/types';
 import { toast } from '../utils/toast';
 
@@ -30,7 +32,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
-  const { loading, error } = useAppSelector((state) => state.auth);
+  const { loading, error, pendingAction } = useAppSelector((state) => state.auth);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,8 +70,59 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
     setSigningIn(true);
     try {
-      await dispatch(login({ email: cleanEmail, password: cleanPassword })).unwrap();
+      const session = await dispatch(login({ email: cleanEmail, password: cleanPassword })).unwrap();
       toast.show('Welcome to AP Enterprises! ✓', 'success', 'Signed In');
+
+      // Fulfill pending action if one exists for buyer
+      if (pendingAction && session?.user?.role === 'buyer') {
+        const action = pendingAction;
+        dispatch(clearPendingAction());
+
+        if (action.type === 'ADD_TO_CART') {
+          try {
+            await dispatch(addCartItem({ productId: action.productId, quantity: action.quantity || 1 })).unwrap();
+            toast.show(`Added ${action.product?.name || 'product'} to cart ✓`, 'success');
+          } catch {}
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('Home');
+          }
+          return;
+        }
+
+        if (action.type === 'BUY_NOW') {
+          try {
+            await dispatch(addCartItem({ productId: action.productId, quantity: action.quantity || 1 })).unwrap();
+          } catch {}
+          navigation.navigate('Cart');
+          return;
+        }
+
+        if (action.type === 'WISHLIST' && action.product) {
+          dispatch(toggleWishlist(action.product));
+          toast.show(`Added ${action.product.name} to wishlist ❤️`, 'success');
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('Home');
+          }
+          return;
+        }
+      }
+
+      // Default role-based routing
+      if (session?.user?.role === 'admin') {
+        navigation.navigate('AdminDashboard');
+      } else if (session?.user?.role === 'seller') {
+        navigation.navigate('SellerDashboard');
+      } else {
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        } else {
+          navigation.navigate('Home');
+        }
+      }
     } catch (err: any) {
       const msg = typeof err === 'string' ? err : err?.message || 'Login failed. Please verify your credentials.';
       setValidationError(msg);
@@ -106,6 +159,21 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+        {/* BACK TO CATALOG */}
+        {navigation.canGoBack() ? (
+          <View style={styles.topNavRow}>
+            <Pressable
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={8}
+              accessibilityLabel="Back to catalog"
+            >
+              <MaterialCommunityIcons name="arrow-left" size={20} color={colors.primary} />
+              <Text style={styles.backButtonText}>Back to Catalog</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* BRAND HEADER */}
         <View style={styles.brandHeader}>
           <View style={styles.logoBadge}>
@@ -287,6 +355,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 36
+  },
+  topNavRow: {
+    marginBottom: 8,
+    alignSelf: 'flex-start'
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: radius.md,
+    backgroundColor: '#EFF6FF'
+  },
+  backButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary
   },
   brandHeader: {
     alignItems: 'center',

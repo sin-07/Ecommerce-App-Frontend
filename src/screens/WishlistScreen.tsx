@@ -120,6 +120,7 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
     [navigation, handleAddToCart, handleRemove]
   );
 
+  const { user } = useAppSelector((state) => state.auth);
   const insets = useSafeAreaInsets();
 
   return (
@@ -131,9 +132,11 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>My Wishlist</Text>
-          <Text style={styles.headerSubtitle}>{items.length} saved product{items.length === 1 ? '' : 's'}</Text>
+          <Text style={styles.headerSubtitle}>
+            {user ? `${items.length} saved product${items.length === 1 ? '' : 's'}` : 'AP Enterprises Wholesale'}
+          </Text>
         </View>
-        {items.length > 0 ? (
+        {user && items.length > 0 ? (
           <TouchableOpacity
             style={styles.clearBtn}
             onPress={() => {
@@ -143,10 +146,40 @@ export const WishlistScreen: React.FC<Props> = ({ navigation }) => {
           >
             <Text style={styles.clearBtnText}>Clear</Text>
           </TouchableOpacity>
-        ) : <View style={{ width: 40 }} />}
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
-      {items.length === 0 ? (
+      {!user ? (
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="lock-closed-outline" size={44} color={colors.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>Sign In Required</Text>
+          <Text style={styles.emptySubtitle}>
+            Please sign in or create an account to view and manage your saved wholesale products.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+            <TouchableOpacity
+              style={styles.browseBtn}
+              onPress={() => navigation.navigate('Login')}
+              activeOpacity={0.85}
+            >
+              <MaterialCommunityIcons name="login" size={18} color={colors.white} />
+              <Text style={styles.browseBtnText}>Sign In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.browseBtn, { backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.primary }]}
+              onPress={() => navigation.navigate('Register')}
+              activeOpacity={0.85}
+            >
+              <MaterialCommunityIcons name="account-plus-outline" size={18} color={colors.primary} />
+              <Text style={[styles.browseBtnText, { color: colors.primary }]}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : items.length === 0 ? (
         <View style={styles.emptyWrap}>
           <View style={styles.emptyIconCircle}>
             <Ionicons name="heart-dislike-outline" size={48} color={colors.primary} />
