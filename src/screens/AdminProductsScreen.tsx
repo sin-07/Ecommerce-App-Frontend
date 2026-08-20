@@ -89,14 +89,16 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    const target = deleteTarget;
     setDeleting(true);
     try {
-      await api.delete(`/admin/products/${deleteTarget._id}`);
-      toast.success('Product deleted successfully');
+      await api.delete(`/admin/products/${target._id}`);
+      toast.success('Product permanently deleted successfully');
+      setItems((prev) => prev.filter((p) => p._id !== target._id));
+      setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
       setDeleteTarget(null);
-      await loadProducts(items.length === 1 && pagination.page > 1 ? pagination.page - 1 : pagination.page, { silent: true });
     } catch (requestError: any) {
-      toast.error(requestError?.response?.data?.message || "Couldn't delete product.");
+      toast.error(requestError?.response?.data?.message || 'Unable to delete product. Please try again.');
     } finally {
       setDeleting(false);
     }
@@ -367,7 +369,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
             <Text style={styles.confirmTitle}>Delete Product?</Text>
             <Text style={styles.confirmText}>
-              Are you sure you want to delete &ldquo;{deleteTarget?.name}&rdquo;? It will be deactivated from the buyer catalog.
+              Are you sure you want to permanently delete &ldquo;{deleteTarget?.name}&rdquo;? This action cannot be undone and will permanently remove this product from the database and catalog.
             </Text>
             <View style={styles.confirmActions}>
               <View style={styles.confirmHalf}>
@@ -380,7 +382,7 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
               <View style={styles.confirmHalf}>
                 <AppButton
-                  title={deleting ? 'Deleting...' : 'Delete'}
+                  title={deleting ? 'Deleting...' : 'Delete Product'}
                   icon="trash-can-outline"
                   variant="danger"
                   loading={deleting}

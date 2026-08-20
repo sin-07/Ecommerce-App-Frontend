@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Switch, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Menu } from 'react-native-paper';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from './AppButton';
 import { AppInput } from './AppInput';
+import { AnimatedDropdown } from './AnimatedDropdown';
 import { colors, radius, shadows } from '../constants/theme';
 import { toast } from '../utils/toast';
 
@@ -52,8 +52,30 @@ type Props = {
   onSubmit: (payload: ProductFormPayload) => void | Promise<void>;
 };
 
-const DEFAULT_CATEGORIES = ['Beverages', 'Eggs', 'Existing Products', 'Snacks', 'General Wholesale'];
-const DEFAULT_UNITS = ['can', 'bottle', 'tray', 'dozen', 'pack', 'crate', 'piece', 'box', 'bag', 'kg'];
+export const PRODUCT_CATEGORIES = [
+  'Beverages',
+  'Eggs',
+  'Existing Products',
+  'Soft Drinks',
+  'Juices',
+  'Energy Drinks',
+  'Water & Soda',
+  'Snacks',
+  'General Wholesale'
+];
+
+export const PRODUCT_UNITS = [
+  'piece',
+  'dozen',
+  'tray',
+  'crate',
+  'can',
+  'bottle',
+  'pack',
+  'box',
+  'bag',
+  'kg'
+];
 
 const defaults: ProductFormValues = {
   name: '',
@@ -73,15 +95,13 @@ const defaults: ProductFormValues = {
 };
 
 export const ProductForm: React.FC<Props> = ({
-  categories = DEFAULT_CATEGORIES,
+  categories = PRODUCT_CATEGORIES,
   initialValues,
   submitLabel = 'Save Product',
   loading = false,
   onSubmit
 }) => {
   const [values, setValues] = useState<ProductFormValues>({ ...defaults, ...initialValues });
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [unitMenuVisible, setUnitMenuVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [error, setError] = useState('');
 
@@ -176,7 +196,7 @@ export const ProductForm: React.FC<Props> = ({
   };
 
   const allCategories = useMemo(() => {
-    const set = new Set([...DEFAULT_CATEGORIES, ...categories]);
+    const set = new Set([...PRODUCT_CATEGORIES, ...categories]);
     return Array.from(set);
   }, [categories]);
 
@@ -187,7 +207,7 @@ export const ProductForm: React.FC<Props> = ({
         <View style={styles.cardHeading}>
           <View>
             <Text style={styles.cardTitle}>Product Information</Text>
-            <Text style={styles.cardSubtitle}>Title, category, description & pack configuration.</Text>
+            <Text style={styles.cardSubtitle}>Title, category, description & packaging configuration.</Text>
           </View>
           <MaterialCommunityIcons name="package-variant-closed" size={23} color={colors.primary} />
         </View>
@@ -199,65 +219,26 @@ export const ProductForm: React.FC<Props> = ({
           placeholder="e.g. Farm Fresh Table Eggs (Tray of 30) / Coca-Cola (330ml)"
         />
 
-        {/* CATEGORY DROPDOWN */}
-        <View style={styles.dropdownWrap}>
-          <Text style={styles.fieldLabel}>Category *</Text>
-          <Menu
-            visible={menuVisible}
-            onDismiss={() => setMenuVisible(false)}
-            anchor={
-              <TouchableOpacity
-                style={styles.dropdownAnchor}
-                activeOpacity={0.85}
-                onPress={() => setMenuVisible(true)}
-              >
-                <Text style={styles.dropdownText}>{values.category || 'Select category'}</Text>
-                <MaterialCommunityIcons name="chevron-down" size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
-            }
-          >
-            {allCategories.map((cat) => (
-              <Menu.Item
-                key={cat}
-                title={cat}
-                onPress={() => {
-                  update('category', cat);
-                  setMenuVisible(false);
-                }}
-              />
-            ))}
-          </Menu>
-        </View>
+        {/* ANIMATED CATEGORY DROPDOWN */}
+        <AnimatedDropdown
+          label="Category"
+          required
+          selectedValue={values.category}
+          options={allCategories}
+          onSelect={(cat) => update('category', cat)}
+          placeholder="Select category (e.g. Eggs, Beverages)"
+        />
 
         {/* UNIT & PACK SIZE */}
         <View style={styles.twoCol}>
           <View style={styles.flex}>
-            <Text style={styles.fieldLabel}>Selling Unit</Text>
-            <Menu
-              visible={unitMenuVisible}
-              onDismiss={() => setUnitMenuVisible(false)}
-              anchor={
-                <TouchableOpacity
-                  style={styles.dropdownAnchor}
-                  activeOpacity={0.85}
-                  onPress={() => setUnitMenuVisible(true)}
-                >
-                  <Text style={styles.dropdownText}>{values.unit || 'piece'}</Text>
-                  <MaterialCommunityIcons name="chevron-down" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
-              }
-            >
-              {DEFAULT_UNITS.map((u) => (
-                <Menu.Item
-                  key={u}
-                  title={u}
-                  onPress={() => {
-                    update('unit', u);
-                    setUnitMenuVisible(false);
-                  }}
-                />
-              ))}
-            </Menu>
+            <AnimatedDropdown
+              label="Selling Unit"
+              selectedValue={values.unit}
+              options={PRODUCT_UNITS}
+              onSelect={(u) => update('unit', u)}
+              placeholder="Unit"
+            />
           </View>
 
           <View style={styles.flex}>
@@ -375,7 +356,7 @@ export const ProductForm: React.FC<Props> = ({
         ) : (
           <View style={styles.imageEmpty}>
             <MaterialCommunityIcons name="image-off-outline" size={28} color={colors.textMuted} />
-            <Text style={styles.hint}>No image selected</Text>
+            <Text style={styles.hint}>No image selected (Category icon will be used)</Text>
           </View>
         )}
       </View>
@@ -463,20 +444,6 @@ const styles = StyleSheet.create({
   },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '900' },
   cardSubtitle: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2, maxWidth: 280 },
-  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: '800', marginBottom: 6 },
-  dropdownWrap: { gap: 4 },
-  dropdownAnchor: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  dropdownText: { color: colors.text, fontSize: 14, fontWeight: '700' },
   twoCol: { flexDirection: 'row', gap: 10 },
   flex: { flex: 1 },
   previewImage: {

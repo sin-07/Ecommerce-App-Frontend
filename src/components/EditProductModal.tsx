@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import {
   BottomSheetBackdrop,
   BottomSheetFooter,
@@ -7,12 +7,13 @@ import {
   BottomSheetScrollView,
   BottomSheetView
 } from '@gorhom/bottom-sheet';
-import { Menu, TextInput } from 'react-native-paper';
+import { TextInput } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Product } from '../constants/types';
-import { colors } from '../constants/theme';
+import { colors, radius, shadows } from '../constants/theme';
 import { AppButton } from './AppButton';
+import { AnimatedDropdown } from './AnimatedDropdown';
 
 type EditPayload = {
   name: string;
@@ -42,7 +43,6 @@ export const EditProductModal: React.FC<Props> = ({
   const [price, setPrice] = useState('');
   const [stock, setStock] = useState('');
   const [category, setCategory] = useState('');
-  const [menuVisible, setMenuVisible] = useState(false);
   const [error, setError] = useState('');
   const [nameFocused, setNameFocused] = useState(false);
   const [priceFocused, setPriceFocused] = useState(false);
@@ -59,89 +59,108 @@ export const EditProductModal: React.FC<Props> = ({
     }
   }, [visible]);
 
-  const closeSheet = () => {
-    sheetRef.current?.dismiss();
+  useEffect(() => {
+    if (!product) {
+      setName('');
+      setPrice('');
+      setStock('');
+      setCategory('');
+      setError('');
+      return;
+    }
+
+    setName(product.name || '');
+    setPrice(String(product.price ?? ''));
+    setStock(String(product.stock ?? ''));
+    setCategory(product.category || (categories[0] ?? 'Beverages'));
+    setError('');
+  }, [product, categories]);
+
+  const hasChanges = useMemo(() => {
+    if (!product) return false;
+    const numericPrice = Number(price);
+    const numericStock = Number(stock);
+    return (
+      name.trim() !== product.name ||
+      numericPrice !== product.price ||
+      numericStock !== product.stock ||
+      category !== product.category
+    );
+  }, [name, price, stock, category, product]);
+
+  const validate = () => {
+    if (!name.trim()) return 'Product name is required';
+    if (!price.trim()) return 'Price is required';
+    const numPrice = Number(price);
+    if (Number.isNaN(numPrice) || numPrice < 0) return 'Enter a valid price';
+    if (!stock.trim()) return 'Stock is required';
+    const numStock = Number(stock);
+    if (Number.isNaN(numStock) || numStock < 0) return 'Enter a valid stock quantity';
+    if (!category.trim()) return 'Category is required';
+    return null;
   };
+
+  const handleSave = useCallback(async () => {
+    const err = validate();
+    if (err) {
+      setError(err);
+      return;
+    }
+
+    setError('');
+    await onSave({
+      name: name.trim(),
+      price: Number(price),
+      stock: Number(stock),
+      category: category.trim()
+    });
+  }, [name, price, stock, category, onSave]);
 
   const onSheetChange = useCallback(
     (index: number) => {
       if (index === -1) {
-        setMenuVisible(false);
         onClose();
       }
     },
     [onClose]
   );
 
-  useEffect(() => {
-    if (!visible || !product) return;
-    setName(product.name || '');
-    setPrice(String(product.price ?? ''));
-    setStock(String(product.stock ?? ''));
-    setCategory(product.category || '');
-    setError('');
-  }, [visible, product]);
-
-  const parsedPrice = useMemo(() => Number(price), [price]);
-  const parsedStock = useMemo(() => Number(stock), [stock]);
-
-  const validate = () => {
-    if (!name.trim() || !category.trim() || !price.trim() || !stock.trim()) {
-      setError('All fields are required.');
-      return false;
-    }
-
-    if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
-      setError('Enter a valid price greater than 0.');
-      return false;
-    }
-
-    if (Number.isNaN(parsedStock) || parsedStock < 0) {
-      setError('Enter a valid stock (0 or more).');
-      return false;
-    }
-
-    setError('');
-    return true;
-  };
-
-  const handleSave = async () => {
-    if (!validate()) return;
-
-    await onSave({
-      name: name.trim(),
-      price: parsedPrice,
-      stock: parsedStock,
-      category: category.trim()
-    });
-  };
-
-  const hasChanges =
-    !!product &&
-    (name.trim() !== (product.name || '').trim() ||
-      parsedPrice !== Number(product.price) ||
-      parsedStock !== Number(product.stock) ||
-      category.trim() !== (product.category || '').trim());
-
   const renderBackdrop = useCallback(
-    (props: any) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.56} pressBehavior="close" />,
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.5}
+        pressBehavior="close"
+      />
+    ),
     []
   );
 
   const renderFooter = useCallback(
     (props: any) => (
-      <BottomSheetFooter {...props} bottomInset={insets.bottom + 8}>
+      <BottomSheetFooter {...props} bottomInset={insets.bottom}>
         <View style={styles.footer}>
-          <View style={styles.actionHalf}>
-            <AppButton title="Cancel" icon="close" variant="secondary" onPress={closeSheet} />
-          </View>
-          <View style={styles.actionHalf}>
-            <AppButton title="Save" icon="content-save" loading={saving} disabled={!hasChanges || saving} onPress={handleSave} />
+          <View style={styles.footerActions}>
+            <View style={styles.footerBtn}>
+              <AppButton title="Cancel" variant="secondary" onPress={onClose} disabled={saving} />
+            </View>
+            <View style={styles.footerBtn}>
+              <AppButton
+                title={saving ? 'Saving...' : 'Save Changes'}
+                icon="content-save-outline"
+                variant="primary"
+                loading={saving}
+                disabled={!hasChanges || saving}
+                onPress={handleSave}
+              />
+            </View>
           </View>
         </View>
       </BottomSheetFooter>
     ),
-    [insets.bottom, hasChanges, saving, handleSave]
+    [insets.bottom, hasChanges, saving, handleSave, onClose]
   );
 
   return (
@@ -185,13 +204,13 @@ export const EditProductModal: React.FC<Props> = ({
           </View>
 
           <View style={styles.inputWrap}>
-            <Text style={styles.inputLabel}>Price</Text>
+            <Text style={styles.inputLabel}>Price (₹)</Text>
             <TextInput
               mode="outlined"
               value={price}
               onChangeText={setPrice}
               keyboardType="numeric"
-              placeholder="Enter price"
+              placeholder="Enter price in ₹"
               outlineStyle={[styles.inputOutline, priceFocused && styles.inputOutlineFocused]}
               style={styles.input}
               textColor={colors.text}
@@ -202,7 +221,7 @@ export const EditProductModal: React.FC<Props> = ({
           </View>
 
           <View style={styles.inputWrap}>
-            <Text style={styles.inputLabel}>Stock</Text>
+            <Text style={styles.inputLabel}>Stock Quantity</Text>
             <TextInput
               mode="outlined"
               value={stock}
@@ -218,30 +237,13 @@ export const EditProductModal: React.FC<Props> = ({
             />
           </View>
 
-          <View style={styles.dropdownWrap}>
-            <Text style={styles.inputLabel}>Category</Text>
-            <Menu
-              visible={menuVisible}
-              onDismiss={() => setMenuVisible(false)}
-              anchor={
-                <TouchableOpacity style={styles.dropdownAnchor} activeOpacity={0.9} onPress={() => setMenuVisible(true)}>
-                  <Text style={[styles.dropdownText, !category && styles.dropdownPlaceholder]}>{category || 'Select category'}</Text>
-                  <MaterialCommunityIcons name="chevron-down" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
-              }
-            >
-              {categories.map((cat) => (
-                <Menu.Item
-                  key={cat}
-                  title={cat}
-                  onPress={() => {
-                    setCategory(cat);
-                    setMenuVisible(false);
-                  }}
-                />
-              ))}
-            </Menu>
-          </View>
+          <AnimatedDropdown
+            label="Category"
+            selectedValue={category}
+            options={categories.length ? categories : ['Beverages', 'Eggs', 'Existing Products']}
+            onSelect={(cat) => setCategory(cat)}
+            placeholder="Select category"
+          />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </BottomSheetScrollView>
@@ -251,96 +253,68 @@ export const EditProductModal: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  sheetBg: {
-    backgroundColor: '#0f1f3b',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    borderWidth: 1,
-    borderColor: '#22406e',
-    shadowColor: '#000000',
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -3 },
-    elevation: 10
-  },
-  handleIndicator: {
-    backgroundColor: '#5677ab',
-    width: 56,
-    height: 5
-  },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8
+    paddingHorizontal: 20
+  },
+  sheetBg: {
+    backgroundColor: colors.card
+  },
+  handleIndicator: {
+    backgroundColor: colors.border,
+    width: 44,
+    height: 4
   },
   title: {
-    color: '#f3f8ff',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 10,
-    paddingHorizontal: 2
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 12
   },
   form: {
     gap: 12,
-    paddingBottom: 12
+    paddingTop: 4
   },
   inputWrap: {
     gap: 6
   },
-  dropdownWrap: {
-    gap: 6
-  },
   inputLabel: {
     color: colors.text,
-    fontWeight: '700',
-    fontSize: 13
+    fontSize: 12.5,
+    fontWeight: '800'
   },
   input: {
-    backgroundColor: '#12284a'
-  },
-  inputOutline: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#2a4a79'
-  },
-  inputOutlineFocused: {
-    borderColor: '#3f86ff'
-  },
-  dropdownAnchor: {
-    backgroundColor: '#12284a',
-    borderWidth: 1,
-    borderColor: '#2a4a79',
-    borderRadius: 14,
-    minHeight: 50,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  dropdownText: {
-    color: colors.text,
+    backgroundColor: colors.cardAlt,
     fontSize: 14,
     fontWeight: '600'
   },
-  dropdownPlaceholder: {
-    color: colors.textMuted,
-    fontWeight: '500'
+  inputOutline: {
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1.5
+  },
+  inputOutlineFocused: {
+    borderColor: colors.primary
   },
   error: {
-    color: '#ff6b6b',
-    fontWeight: '600',
-    fontSize: 12
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4
   },
   footer: {
-    backgroundColor: '#0f1f3b',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 16,
+    backgroundColor: colors.card,
     borderTopWidth: 1,
-    borderColor: '#22406e',
+    borderTopColor: colors.border
+  },
+  footerActions: {
     flexDirection: 'row',
     gap: 10
   },
-  actionHalf: {
+  footerBtn: {
     flex: 1
   }
 });
