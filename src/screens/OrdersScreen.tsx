@@ -479,6 +479,16 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             const paymentStatus = item.paymentStatus || (amountPaid >= finalOrderTotal ? 'PAID' : amountPaid > 0 ? 'PARTIALLY_PAID' : 'DUE');
             const payTone = paymentStatusTone(paymentStatus);
 
+            // 5. 12-Hour Payment Window Calculation after Delivery
+            const isDelivered = item.status === 'delivered';
+            const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+            const deliveredTime = item.deliveredAt ? new Date(item.deliveredAt).getTime() : 0;
+            const msSinceDelivered = deliveredTime > 0 ? Date.now() - deliveredTime : 0;
+            const isPaymentWindowExpired = isDelivered && deliveredTime > 0 && msSinceDelivered > TWELVE_HOURS_MS;
+            const msRemaining = Math.max(0, TWELVE_HOURS_MS - msSinceDelivered);
+            const hoursRemaining = Math.floor(msRemaining / (1000 * 60 * 60));
+            const minsRemaining = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));
+
             const addr = item.deliveryAddress || item.deliveryAddressDetails || {};
             const contactName = addr.contactName || item.customerName || (typeof item.buyer === 'object' && item.buyer?.name) || 'Wholesale Buyer';
             const contactPhone = addr.phone || item.phoneNumber || (typeof item.buyer === 'object' && item.buyer?.phone) || '';
@@ -848,19 +858,38 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                     />
                   ) : null}
 
-                  {/* ADMIN MARK AS PAID BUTTON */}
+                  {/* ADMIN MARK AS PAID BUTTON & 12-HOUR PAYMENT WINDOW */}
                   {isAdminOrSeller && amountDue > 0 && !isCancelled && (
-                    <Pressable
-                      style={styles.markPaidButton}
-                      disabled={updatingId === item._id}
-                      onPress={() => handleMarkPaid(item)}
-                    >
-                      <MaterialCommunityIcons name="credit-card-check-outline" size={17} color={colors.primary} />
-                      <Text style={styles.markPaidText}>Mark Full Payment as Paid ({formatINR(amountDue)})</Text>
-                    </Pressable>
+                    <>
+                      {isDelivered && isPaymentWindowExpired ? (
+                        <View style={styles.paymentWindowExpiredBox}>
+                          <Ionicons name="time-outline" size={15} color={colors.textMuted} />
+                          <Text style={styles.paymentWindowExpiredText}>Payment window expired (12h limit reached)</Text>
+                        </View>
+                      ) : (
+                        <>
+                          <Pressable
+                            style={styles.markPaidButton}
+                            disabled={updatingId === item._id}
+                            onPress={() => handleMarkPaid(item)}
+                          >
+                            <MaterialCommunityIcons name="credit-card-check-outline" size={17} color={colors.primary} />
+                            <Text style={styles.markPaidText}>Mark Full Payment as Paid ({formatINR(amountDue)})</Text>
+                          </Pressable>
+                          {isDelivered && deliveredTime > 0 && (
+                            <View style={styles.paymentWindowTimerBox}>
+                              <Ionicons name="timer-outline" size={13} color="#D97706" />
+                              <Text style={styles.paymentWindowTimerText}>
+                                Payment allowed for: {hoursRemaining}h {minsRemaining}m remaining
+                              </Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </>
                   )}
 
-                  {/* ADMIN CANCEL ORDER BUTTON (FEATURE 5) */}
+                  {/* ADMIN CANCEL ORDER BUTTON */}
                   {user?.role === 'admin' && !isCancelled && item.status !== 'delivered' && (
                     <TouchableOpacity
                       style={styles.adminCancelOrderBtn}
@@ -1565,6 +1594,39 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12.5,
     fontWeight: '800'
+  },
+  paymentWindowTimerBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#FFFBEB',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: '#FDE68A'
+  },
+  paymentWindowTimerText: {
+    fontSize: 11.5,
+    color: '#B45309',
+    fontWeight: '700'
+  },
+  paymentWindowExpiredBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB'
+  },
+  paymentWindowExpiredText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '700'
   },
   adminCancelOrderBtn: {
     flexDirection: 'row',

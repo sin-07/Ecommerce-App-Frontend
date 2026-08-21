@@ -99,13 +99,22 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [user, loadNotifications]);
 
+  const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+
+  // Filter out any read notifications older than 12 hours
+  const activeNotifications = notifications.filter((n) => {
+    if (!n.isRead || !n.readAt) return true;
+    const timeSinceRead = Date.now() - new Date(n.readAt).getTime();
+    return timeSinceRead <= TWELVE_HOURS_MS;
+  });
+
   const handleMarkAsRead = async (item: AppNotification) => {
     if (item.isRead) return;
     haptics.selection();
     try {
       await api.patch(`/notifications/${item._id}/read`);
       setNotifications((prev) =>
-        prev.map((n) => (n._id === item._id ? { ...n, isRead: true } : n))
+        prev.map((n) => (n._id === item._id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch {
@@ -119,13 +128,16 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     setMarkingAll(true);
     try {
       await api.patch('/notifications/read-all');
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      const nowIso = new Date().toISOString();
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, isRead: true, readAt: n.readAt || nowIso }))
+      );
       setUnreadCount(0);
       haptics.successNotification();
-      toast.success('All notifications marked as read');
+      toast.show('All notifications marked as read', 'success');
     } catch {
       haptics.errorNotification();
-      toast.error('Failed to update notifications');
+      toast.show('Failed to update notifications', 'error');
     } finally {
       setMarkingAll(false);
     }
@@ -245,11 +257,11 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           ))}
         </View>
-      ) : error && !notifications.length ? (
+      ) : error && !activeNotifications.length ? (
         <View style={styles.emptyWrap}>
           <ErrorView message={error} onRetry={() => loadNotifications(false)} />
         </View>
-      ) : notifications.length === 0 ? (
+      ) : activeNotifications.length === 0 ? (
         <View style={styles.emptyWrap}>
           <EmptyState
             icon="bell-off-outline"
@@ -261,7 +273,7 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       ) : (
         <FlatList
-          data={notifications}
+          data={activeNotifications}
           keyExtractor={(item) => item._id}
           renderItem={renderItem}
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(28, insets.bottom + 16) }]}

@@ -101,6 +101,7 @@ export interface AppNotification {
     status?: string;
   };
   isRead: boolean;
+  readAt?: string | null;
   createdAt: string;
 }
 
