@@ -23,6 +23,7 @@
         "backgroundColor": "#fffdeb"
       },
       "package": "com.apenterprises.b2b",
+      "versionCode": 1,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
