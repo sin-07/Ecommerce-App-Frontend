@@ -138,6 +138,7 @@ export interface DeliveryAddressDetails {
   pincode?: string;
   country?: string;
   notes?: string;
+  landmark?: string;
   // Aliases for backward compatibility
   fullName?: string;
   street?: string;
