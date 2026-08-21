@@ -440,25 +440,33 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             const activeItems = (item.items || []).filter((i) => i.status !== 'cancelled');
             const cancelledItems = (item.items || []).filter((i) => i.status === 'cancelled');
             const totalUnits = activeItems.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
-            const originalItemsTotal = (item.items || []).reduce(
-              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
-              0
-            );
-            const totalCancelledAmount = cancelledItems.reduce(
-              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
-              0
-            );
-            const activeSubtotal = item.subtotal || activeItems.reduce(
-              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
-              0
-            );
-            const subtotal = item.subtotal || originalItemsTotal;
-            const deliveryFee = item.deliveryFee || 0;
-            const discount = item.discount || 0;
 
-            const amountPaid = Number(item.amountPaid || 0);
-            const amountDue = Number(item.amountDue !== undefined ? item.amountDue : Math.max(item.totalAmount - amountPaid, 0));
-            const paymentStatus = item.paymentStatus || (amountPaid >= item.totalAmount ? 'PAID' : amountPaid > 0 ? 'PARTIALLY_PAID' : 'DUE');
+            // 1. Original items total = sum of all items (active + cancelled)
+            const originalItemsTotal = (item.items || []).reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? Number(i.lineTotal) : Number(i.unitPrice * i.quantity) || 0),
+              0
+            );
+
+            // 2. Order adjustment = sum of only cancelled items
+            const totalCancelledAmount = cancelledItems.reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? Number(i.lineTotal) : Number(i.unitPrice * i.quantity) || 0),
+              0
+            );
+
+            // 3. Active items subtotal = sum of only non-cancelled items
+            const activeSubtotal = activeItems.reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? Number(i.lineTotal) : Number(i.unitPrice * i.quantity) || 0),
+              0
+            );
+
+            const deliveryFee = Number(item.deliveryFee) || 0;
+            const discount = Number(item.discount) || 0;
+
+            // 4. Final dynamic order total based strictly on active items
+            const finalOrderTotal = Math.max(0, activeSubtotal + deliveryFee - discount);
+            const amountPaid = Number(item.amountPaid) || 0;
+            const amountDue = Math.max(0, finalOrderTotal - amountPaid);
+            const paymentStatus = item.paymentStatus || (amountPaid >= finalOrderTotal ? 'PAID' : amountPaid > 0 ? 'PARTIALLY_PAID' : 'DUE');
             const payTone = paymentStatusTone(paymentStatus);
 
             const addr = item.deliveryAddress || item.deliveryAddressDetails || {};
@@ -502,7 +510,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                 <View style={styles.orderStats}>
                   <View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.amount}>{formatINR(item.totalAmount)}</Text>
+                      <Text style={styles.amount}>{formatINR(finalOrderTotal)}</Text>
                       {totalCancelledAmount > 0 ? (
                         <View style={styles.revisedBadgePill}>
                           <Text style={styles.revisedBadgeText}>REVISED TOTAL</Text>
@@ -769,7 +777,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       ) : (
                         <View style={styles.priceRow}>
                           <Text style={styles.priceLabel}>Items Subtotal</Text>
-                          <Text style={styles.priceVal}>{formatINR(subtotal)}</Text>
+                          <Text style={styles.priceVal}>{formatINR(activeSubtotal)}</Text>
                         </View>
                       )}
 
@@ -803,7 +811,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
                       <View style={[styles.priceRow, styles.totalRow]}>
                         <Text style={styles.totalLabel}>Total Order Amount</Text>
-                        <Text style={styles.totalVal}>{formatINR(item.totalAmount)}</Text>
+                        <Text style={styles.totalVal}>{formatINR(finalOrderTotal)}</Text>
                       </View>
 
                       <View style={styles.paymentStatusRow}>
