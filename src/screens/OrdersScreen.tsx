@@ -93,6 +93,53 @@ const paymentStatusTone = (status: string) => {
   }
 };
 
+const getOrderCardTint = (
+  status: string,
+  paymentStatus: string,
+  isCancelled: boolean,
+  isDark: boolean
+) => {
+  if (isCancelled) {
+    return {
+      bg: isDark ? '#1C1917' : '#F9FAFB',
+      border: isDark ? '#44403C' : '#E5E7EB'
+    };
+  }
+
+  const isDelivered = status === 'delivered';
+  const isPaid = String(paymentStatus || '').toUpperCase() === 'PAID';
+
+  // 1. DELIVERED + PAID -> subtle GREEN
+  if (isDelivered && isPaid) {
+    return {
+      bg: isDark ? '#062E1A' : '#F0FDF4',
+      border: isDark ? '#14532D' : '#BBF7D0'
+    };
+  }
+
+  // 2. DELIVERED + NOT PAID -> subtle ORANGE / AMBER ("Delivered, payment still pending")
+  if (isDelivered && !isPaid) {
+    return {
+      bg: isDark ? '#3D1E03' : '#FFF8E7',
+      border: isDark ? '#78350F' : '#FDE68A'
+    };
+  }
+
+  // 3. NOT DELIVERED + NOT PAID -> subtle RED ("In transit / pending, payment pending")
+  if (!isDelivered && !isPaid) {
+    return {
+      bg: isDark ? '#3B0D0D' : '#FFF5F5',
+      border: isDark ? '#7F1D1D' : '#FECACA'
+    };
+  }
+
+  // 4. OTHER STATES (e.g. Not Delivered + Prepaid / Paid) -> standard clean card
+  return {
+    bg: isDark ? '#18181B' : '#FFFFFF',
+    border: isDark ? '#27272A' : '#E5E7EB'
+  };
+};
+
 const getItemImageUrl = (item: OrderItem): string => {
   if (item.imageUrl) {
     return item.imageUrl.startsWith('http')
@@ -499,8 +546,16 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             const addrState = addr.state || '';
             const addrPincode = addr.pincode || addr.postalCode || '';
 
+            const cardTint = getOrderCardTint(item.status, paymentStatus, isCancelled, isDark);
+
             return (
-              <View style={[styles.card, isCancelled && styles.cardCancelled]}>
+              <View
+                style={[
+                  styles.card,
+                  { backgroundColor: cardTint.bg, borderColor: cardTint.border },
+                  isCancelled && styles.cardCancelled
+                ]}
+              >
                 {/* ORDER HEADER */}
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
