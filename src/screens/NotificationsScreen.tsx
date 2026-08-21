@@ -18,7 +18,14 @@ import { api } from '../constants/api';
 import { colors, radius, shadows } from '../constants/theme';
 import { AppNotification } from '../constants/types';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAppSelector } from '../hooks/reduxHooks';
+import { useFocusEffect } from '@react-navigation/native';
+import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
+import {
+  fetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  fetchUnreadCount
+} from '../redux/slices/notificationSlice';
 import { RootStackParamList } from '../navigation/types';
 import { haptics } from '../utils/haptics';
 import { toast } from '../utils/toast';
@@ -59,45 +66,38 @@ const formatTimeAgo = (dateStr: string) => {
 };
 
 export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
+  const dispatch = useAppDispatch();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user } = useAppSelector((state) => state.auth);
+  const { items: notifications, unreadCount, loading, error } = useAppSelector((state) => state.notifications);
 
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
 
-  const loadNotifications = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError('');
+  const loadNotifications = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      }
+      try {
+        await dispatch(fetchNotifications(isRefresh)).unwrap();
+      } catch {
+        // Handled in Redux error state
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [dispatch]
+  );
 
-    try {
-      const res = await api.get('/notifications');
-      const data = res.data.data;
-      setNotifications(data.notifications || []);
-      setUnreadCount(data.unreadCount || 0);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Unable to load notifications');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      loadNotifications();
-    } else {
-      setLoading(false);
-    }
-  }, [user, loadNotifications]);
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        loadNotifications(false);
+      }
+    }, [user, loadNotifications])
+  );
 
   const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 
@@ -112,11 +112,7 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     if (item.isRead) return;
     haptics.selection();
     try {
-      await api.patch(`/notifications/${item._id}/read`);
-      setNotifications((prev) =>
-        prev.map((n) => (n._id === item._id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      await dispatch(markNotificationRead(item._id)).unwrap();
     } catch {
       // Silent fail
     }
@@ -127,12 +123,7 @@ export const NotificationsScreen: React.FC<Props> = ({ navigation }) => {
     haptics.lightImpact();
     setMarkingAll(true);
     try {
-      await api.patch('/notifications/read-all');
-      const nowIso = new Date().toISOString();
-      setNotifications((prev) =>
-        prev.map((n) => ({ ...n, isRead: true, readAt: n.readAt || nowIso }))
-      );
-      setUnreadCount(0);
+      await dispatch(markAllNotificationsRead()).unwrap();
       haptics.successNotification();
       toast.show('All notifications marked as read', 'success');
     } catch {

@@ -34,9 +34,11 @@ import { BuyAgainProduct, PersonalizedRecommendationsResponse, Product } from '.
 import { useNetwork } from '../contexts/NetworkContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAppDispatch, useAppSelector } from '../hooks/reduxHooks';
+import { useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 import { logout, setPendingAction } from '../redux/slices/authSlice';
 import { addCartItem, fetchCart, removeCartItem, updateCartItem } from '../redux/slices/cartSlice';
+import { fetchUnreadCount, clearNotifications } from '../redux/slices/notificationSlice';
 import { loadWishlist } from '../redux/slices/wishlistSlice';
 import { formatINR } from '../utils/currency';
 import { haptics } from '../utils/haptics';
@@ -56,6 +58,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { user } = useAppSelector((state) => state.auth);
   const { items: cartItems } = useAppSelector((state) => state.cart);
   const { items: wishlistItems } = useAppSelector((state) => state.wishlist);
+  const { unreadCount } = useAppSelector((state) => state.notifications);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -71,7 +74,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [popularProducts, setPopularProducts] = useState<Product[]>([]);
   const [buyAgainProducts, setBuyAgainProducts] = useState<BuyAgainProduct[]>([]);
   const [recommendations, setRecommendations] = useState<PersonalizedRecommendationsResponse | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [buyAgainLoadingId, setBuyAgainLoadingId] = useState<string | null>(null);
 
   // Auth Prompt Modal State for Guest Users
@@ -156,10 +158,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
         api.get('/orders/buyer/buy-again').then((res) => {
           if (res.data?.data) setBuyAgainProducts(res.data.data);
         }).catch(() => {});
-
-        api.get('/notifications/unread-count').then((res) => {
-          if (res.data?.data?.unreadCount !== undefined) setUnreadCount(res.data.data.unreadCount);
-        }).catch(() => {});
       }
     } catch {
       // Graceful fallback
@@ -168,12 +166,24 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [user, setHasCachedData]);
 
+  // Synchronize unread notifications count whenever HomeScreen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        dispatch(fetchUnreadCount());
+      } else {
+        dispatch(clearNotifications());
+      }
+    }, [dispatch, user])
+  );
+
   // Initial load
   useEffect(() => {
     fetchStorefrontData();
     if (user) {
       dispatch(fetchCart());
       dispatch(loadWishlist());
+      dispatch(fetchUnreadCount());
     }
   }, [dispatch, user, fetchStorefrontData]);
 
@@ -473,6 +483,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     setLoggingOut(true);
     try {
       await dispatch(logout()).unwrap();
+      dispatch(clearNotifications());
       toast.info('Signed out of trade account.');
       closeDrawer();
     } catch {

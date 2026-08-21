@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './slices/authSlice';
 import cartReducer from './slices/cartSlice';
 import chatReducer from './slices/chatSlice';
+import notificationReducer from './slices/notificationSlice';
 import orderReducer from './slices/orderSlice';
 import productReducer from './slices/productSlice';
 import wishlistReducer from './slices/wishlistSlice';
@@ -12,6 +13,7 @@ export const store = configureStore({
     products: productReducer,
     cart: cartReducer,
     chat: chatReducer,
+    notifications: notificationReducer,
     orders: orderReducer,
     wishlist: wishlistReducer
   }
