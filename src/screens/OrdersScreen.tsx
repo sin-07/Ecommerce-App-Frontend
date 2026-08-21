@@ -437,8 +437,22 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
               year: 'numeric'
             });
 
-            const totalUnits = (item.items || []).reduce((sum, i) => sum + Number(i.quantity || 0), 0);
-            const subtotal = item.subtotal || (item.items || []).reduce((sum, i) => sum + (i.lineTotal || i.unitPrice * i.quantity), 0);
+            const activeItems = (item.items || []).filter((i) => i.status !== 'cancelled');
+            const cancelledItems = (item.items || []).filter((i) => i.status === 'cancelled');
+            const totalUnits = activeItems.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
+            const originalItemsTotal = (item.items || []).reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
+              0
+            );
+            const totalCancelledAmount = cancelledItems.reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
+              0
+            );
+            const activeSubtotal = item.subtotal || activeItems.reduce(
+              (sum, i) => sum + (i.lineTotal !== undefined ? i.lineTotal : (i.unitPrice * i.quantity) || 0),
+              0
+            );
+            const subtotal = item.subtotal || originalItemsTotal;
             const deliveryFee = item.deliveryFee || 0;
             const discount = item.discount || 0;
 
@@ -487,9 +501,17 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                 {/* ORDER TOTAL & BRIEF SUMMARY BAR */}
                 <View style={styles.orderStats}>
                   <View>
-                    <Text style={styles.amount}>{formatINR(item.totalAmount)}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.amount}>{formatINR(item.totalAmount)}</Text>
+                      {totalCancelledAmount > 0 ? (
+                        <View style={styles.revisedBadgePill}>
+                          <Text style={styles.revisedBadgeText}>REVISED TOTAL</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text style={styles.meta}>
-                      {(item.items || []).length} product line{(item.items || []).length === 1 ? '' : 's'} • {totalUnits} unit{totalUnits === 1 ? '' : 's'}
+                      {activeItems.length} active item{activeItems.length === 1 ? '' : 's'} • {totalUnits} unit{totalUnits === 1 ? '' : 's'}
+                      {cancelledItems.length > 0 ? ` (${cancelledItems.length} cancelled)` : ''}
                     </Text>
                   </View>
 
@@ -509,7 +531,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
 
-                {/* ORDER-LEVEL CANCELLATION BANNER (FEATURE 5 & 7) */}
+                {/* ORDER-LEVEL CANCELLATION BANNER */}
                 {isCancelled ? (
                   <View style={styles.orderCancelledBanner}>
                     <View style={styles.orderCancelledBannerHeader}>
@@ -553,6 +575,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                         const unitName = getItemUnit(orderItem);
                         const isEgg = cat.toLowerCase().includes('egg');
                         const isItemCancelled = orderItem.status === 'cancelled';
+                        const itemCost = orderItem.lineTotal !== undefined ? orderItem.lineTotal : orderItem.subtotal !== undefined ? orderItem.subtotal : orderItem.unitPrice * orderItem.quantity;
 
                         return (
                           <View key={`item-${idx}`} style={[styles.itemRow, isItemCancelled && styles.itemRowCancelled]}>
@@ -590,7 +613,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                                 {orderItem.quantity} {unitName}{orderItem.quantity > 1 ? 's' : ''} × {formatINR(orderItem.unitPrice)}
                               </Text>
 
-                              {/* Item cancellation reason note (FEATURE 6 & 7) */}
+                              {/* Item cancellation reason note */}
                               {isItemCancelled && orderItem.cancellationReason ? (
                                 <View style={styles.itemCancellationNoteBox}>
                                   <Ionicons name="information-circle-outline" size={13} color={colors.danger} />
@@ -600,7 +623,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                                 </View>
                               ) : null}
 
-                              {/* Admin Cancel Item button (FEATURE 6) */}
+                              {/* Admin Cancel Item button */}
                               {user?.role === 'admin' && !isCancelled && item.status !== 'delivered' && !isItemCancelled && (
                                 <TouchableOpacity
                                   style={styles.cancelItemBtn}
@@ -613,10 +636,17 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                               )}
                             </View>
 
-                            {/* Line Total */}
-                            <Text style={[styles.itemSubtotal, isItemCancelled && styles.itemSubtotalCancelled]}>
-                              {formatINR(orderItem.lineTotal || orderItem.subtotal || orderItem.unitPrice * orderItem.quantity)}
-                            </Text>
+                            {/* Line Total & Cancellation Strike */}
+                            <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                              <Text style={[styles.itemSubtotal, isItemCancelled && styles.itemSubtotalCancelled]}>
+                                {formatINR(itemCost)}
+                              </Text>
+                              {isItemCancelled ? (
+                                <Text style={styles.itemCancelledAdjustmentTag}>
+                                  -{formatINR(itemCost)}
+                                </Text>
+                              ) : null}
+                            </View>
                           </View>
                         );
                       })}
@@ -715,10 +745,33 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
                     {/* 4. FINANCIAL PAYMENT BREAKDOWN */}
                     <View style={styles.priceBreakdown}>
-                      <View style={styles.priceRow}>
-                        <Text style={styles.priceLabel}>Items Subtotal</Text>
-                        <Text style={styles.priceVal}>{formatINR(subtotal)}</Text>
-                      </View>
+                      {totalCancelledAmount > 0 ? (
+                        <>
+                          <View style={styles.priceRow}>
+                            <Text style={styles.priceLabel}>Original Items Subtotal</Text>
+                            <Text style={[styles.priceVal, { textDecorationLine: 'line-through', color: colors.textMuted }]}>
+                              {formatINR(originalItemsTotal)}
+                            </Text>
+                          </View>
+                          <View style={styles.priceRow}>
+                            <Text style={[styles.priceLabel, { color: '#DC2626', fontWeight: '700' }]}>
+                              Order Adjustment
+                            </Text>
+                            <Text style={[styles.priceVal, { color: '#DC2626', fontWeight: '800' }]}>
+                              -{formatINR(totalCancelledAmount)}
+                            </Text>
+                          </View>
+                          <View style={styles.priceRow}>
+                            <Text style={styles.priceLabel}>Active Items Subtotal</Text>
+                            <Text style={styles.priceVal}>{formatINR(activeSubtotal)}</Text>
+                          </View>
+                        </>
+                      ) : (
+                        <View style={styles.priceRow}>
+                          <Text style={styles.priceLabel}>Items Subtotal</Text>
+                          <Text style={styles.priceVal}>{formatINR(subtotal)}</Text>
+                        </View>
+                      )}
 
                       <View style={styles.priceRow}>
                         <Text style={styles.priceLabel}>Delivery Charges</Text>
@@ -1302,6 +1355,26 @@ const styles = StyleSheet.create({
   itemSubtotalCancelled: {
     color: colors.textMuted,
     textDecorationLine: 'line-through'
+  },
+  itemCancelledAdjustmentTag: {
+    color: '#DC2626',
+    fontSize: 10.5,
+    fontWeight: '800',
+    marginTop: 2
+  },
+  revisedBadgePill: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: radius.xs
+  },
+  revisedBadgeText: {
+    color: '#DC2626',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.3
   },
   addressBlock: {
     backgroundColor: colors.cardAlt,
