@@ -1151,78 +1151,41 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
               </>
             )}
 
-            <View style={styles.drawerDivider} />
-
-            {/* THEME PREFERENCE TOGGLE */}
-            <View style={styles.drawerNavGroup}>
-              <Text style={styles.drawerNavLabel}>APPEARANCE</Text>
-              <View style={styles.themeToggleRow}>
-                {(['system', 'light', 'dark'] as const).map((mode) => {
-                  const isSelected = themeMode === mode;
-                  return (
-                    <TouchableOpacity
-                      key={mode}
-                      style={[styles.themeOptionBtn, isSelected && styles.themeOptionBtnActive]}
-                      onPress={() => {
-                        haptics.selection();
-                        setThemeMode(mode);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name={mode === 'system' ? 'phone-portrait-outline' : mode === 'light' ? 'sunny-outline' : 'moon-outline'}
-                        size={14}
-                        color={isSelected ? colors.primary : colors.textMuted}
-                      />
-                      <Text style={[styles.themeOptionText, isSelected && styles.themeOptionTextActive]}>
-                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.drawerDivider} />
-
             {/* STAGGERED SECTION 4: FOOTER / SIGN OUT */}
-            <Animated.View
-              style={{
-                opacity: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0, 1] }),
-                transform: [
-                  {
-                    translateX: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [-16, -16, 0] })
-                  }
-                ]
-              }}
-            >
-              <View style={styles.drawerFooterGroup}>
-                {user ? (
-                  <TouchableOpacity
-                    style={styles.drawerLogoutBtn}
-                    onPress={handleLogout}
-                    disabled={loggingOut}
-                  >
-                    {loggingOut ? (
-                      <ActivityIndicator size="small" color={colors.danger} />
-                    ) : (
-                      <>
-                        <MaterialCommunityIcons name="logout" size={18} color={colors.danger} />
-                        <Text style={styles.drawerLogoutText}>Sign Out of Trade Account</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.drawerLoginCtaBtn}
-                    onPress={() => closeDrawer(() => navigation.navigate('Login'))}
-                  >
-                    <MaterialCommunityIcons name="login" size={18} color={colors.primary} />
-                    <Text style={styles.drawerLoginCtaText}>Sign In to Wholesale Account</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </Animated.View>
+            {user ? (
+              <>
+                <View style={styles.drawerDivider} />
+                <Animated.View
+                  style={{
+                    opacity: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0, 1] }),
+                    transform: [
+                      {
+                        translateX: staggerAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [-16, -16, 0] })
+                      }
+                    ]
+                  }}
+                >
+                  <View style={styles.drawerFooterGroup}>
+                    <TouchableOpacity
+                      style={styles.drawerLogoutBtn}
+                      onPress={handleLogout}
+                      disabled={loggingOut}
+                    >
+                      {loggingOut ? (
+                        <ActivityIndicator size="small" color={colors.danger} />
+                      ) : (
+                        <>
+                          <MaterialCommunityIcons name="logout" size={18} color={colors.danger} />
+                          <Text style={styles.drawerLogoutText}>Sign Out of Trade Account</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              </>
+            ) : (
+              <View style={{ height: 16 }} />
+            )}
           </ScrollView>
         </Animated.View>
       )}
@@ -1851,38 +1814,6 @@ const styles = StyleSheet.create({
   buyAgainBtnText: {
     color: colors.white,
     fontSize: 11.5,
-    fontWeight: '800'
-  },
-  themeToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4
-  },
-  themeOptionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 7,
-    paddingHorizontal: 4,
-    borderRadius: radius.sm,
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  themeOptionBtnActive: {
-    backgroundColor: colors.infoSurface,
-    borderColor: colors.primary
-  },
-  themeOptionText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMuted
-  },
-  themeOptionTextActive: {
-    color: colors.primary,
     fontWeight: '800'
   }
 });

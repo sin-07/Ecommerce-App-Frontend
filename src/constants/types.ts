@@ -1,13 +1,32 @@
 export type Role = 'buyer' | 'seller' | 'admin';
 
+export interface SavedAddress {
+  _id?: string;
+  id?: string;
+  fullName: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+  landmark?: string;
+  isDefault?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface User {
   id: string;
+  _id?: string;
   name: string;
   email: string;
   phone?: string;
   role: Role;
   companyName?: string;
   isVerified?: boolean;
+  addresses?: SavedAddress[];
 }
 
 export interface PricingTier {
@@ -43,6 +62,7 @@ export interface Product {
   isBestSeller?: boolean;
   tags?: string[];
   isActive?: boolean;
+  availabilityStatus?: 'active' | 'out_of_stock' | 'unavailable';
   isFeatured?: boolean;
   images?: string[];
   pricingTiers?: PricingTier[];
@@ -90,6 +110,7 @@ export interface CartItem {
 }
 
 export interface OrderItem {
+  _id?: string;
   product: string | Product;
   seller?: string;
   name: string;
@@ -101,6 +122,10 @@ export interface OrderItem {
   unitPrice: number;
   subtotal?: number;
   lineTotal: number;
+  status?: 'active' | 'cancelled';
+  cancellationReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
 }
 
 export interface DeliveryAddressDetails {
@@ -150,7 +175,12 @@ export interface Order {
   estimatedDeliverySlot?: string;
   dispatchedAt?: string | null;
   deliveredAt?: string | null;
+  idempotencyKey?: string;
+  cancellationReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ChatMessage {

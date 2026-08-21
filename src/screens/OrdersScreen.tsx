@@ -1,15 +1,20 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   LayoutAnimation,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -128,10 +133,22 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
+
+  // Cancellation Modals State
+  const [cancelOrderModalVisible, setCancelOrderModalVisible] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
+  const [cancelOrderReason, setCancelOrderReason] = useState('');
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
+
+  const [cancelItemModalVisible, setCancelItemModalVisible] = useState(false);
+  const [cancellingItemOrder, setCancellingItemOrder] = useState<Order | null>(null);
+  const [cancellingItem, setCancellingItem] = useState<OrderItem | null>(null);
+  const [cancellingItemIndex, setCancellingItemIndex] = useState<number>(-1);
+  const [cancelItemReason, setCancelItemReason] = useState('');
+  const [isCancellingItem, setIsCancellingItem] = useState(false);
 
   const loadOrders = useCallback(
     async (isPullToRefresh = false) => {
@@ -185,23 +202,18 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     haptics.mediumImpact();
     try {
       await dispatch(updateOrderStatus({ id: orderId, status: nextStatus })).unwrap();
-      haptics.successNotification();
-      toast.show(
-        `Order #${orderId.slice(-6).toUpperCase()} marked as ${statusLabel[nextStatus]}. Customer notified.`,
-        'success',
-        'Status Updated'
-      );
-    } catch (err: any) {
-      haptics.errorNotification();
-      toast.show(err || 'Unable to update order status.', 'error', 'Update Failed');
+      toast.show(`Order status updated to ${nextStatus.toUpperCase()}`, 'success');
+      loadOrders(true);
+    } catch {
+      toast.show('Failed to update status. Please try again.', 'error');
     } finally {
       setUpdatingId(null);
     }
   };
 
   const handleMarkPaid = async (order: Order) => {
-    setUpdatingId(order._id);
     haptics.mediumImpact();
+    setUpdatingId(order._id);
     try {
       await dispatch(
         updateOrderStatus({
@@ -211,36 +223,104 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           paymentStatus: 'PAID'
         })
       ).unwrap();
-      haptics.successNotification();
-      toast.show(
-        `Order #${order._id.slice(-6).toUpperCase()} payment marked as PAID.`,
-        'success',
-        'Payment Updated'
-      );
-    } catch (err: any) {
-      haptics.errorNotification();
-      toast.show(err || 'Unable to update payment status.', 'error', 'Update Failed');
+      toast.show(`Order #${order._id.slice(-6).toUpperCase()} marked as PAID.`, 'success');
+      loadOrders(true);
+    } catch {
+      toast.show('Failed to update payment status.', 'error');
     } finally {
       setUpdatingId(null);
     }
   };
 
+  // Open Cancel Order Modal (Admin only)
+  const openCancelOrderModal = (order: Order) => {
+    haptics.lightImpact();
+    setCancellingOrder(order);
+    setCancelOrderReason('');
+    setCancelOrderModalVisible(true);
+  };
+
+  // Confirm Admin Order Cancellation
+  const handleConfirmCancelOrder = async () => {
+    if (!cancellingOrder) return;
+    const reasonTrimmed = cancelOrderReason.trim();
+    if (!reasonTrimmed) {
+      haptics.errorNotification();
+      Alert.alert('Reason Required', 'Please enter a reason for cancelling this order so the customer is clearly notified.');
+      return;
+    }
+
+    setIsCancellingOrder(true);
+    haptics.mediumImpact();
+    try {
+      await api.patch(`/orders/${cancellingOrder._id}/cancel`, { reason: reasonTrimmed });
+      toast.show('Order cancelled and customer notified', 'success', 'Order Cancelled');
+      setCancelOrderModalVisible(false);
+      loadOrders(true);
+    } catch (err: any) {
+      haptics.errorNotification();
+      toast.show(err?.response?.data?.message || 'Failed to cancel order', 'error');
+    } finally {
+      setIsCancellingOrder(false);
+    }
+  };
+
+  // Open Cancel Item Modal (Admin only)
+  const openCancelItemModal = (order: Order, item: OrderItem, index: number) => {
+    haptics.lightImpact();
+    setCancellingItemOrder(order);
+    setCancellingItem(item);
+    setCancellingItemIndex(index);
+    setCancelItemReason('');
+    setCancelItemModalVisible(true);
+  };
+
+  // Confirm Admin Item Cancellation
+  const handleConfirmCancelItem = async () => {
+    if (!cancellingItemOrder || !cancellingItem) return;
+    const reasonTrimmed = cancelItemReason.trim();
+    if (!reasonTrimmed) {
+      haptics.errorNotification();
+      Alert.alert('Reason Required', 'Please enter a cancellation reason for this product.');
+      return;
+    }
+
+    setIsCancellingItem(true);
+    haptics.mediumImpact();
+    try {
+      await api.patch(`/orders/${cancellingItemOrder._id}/cancel-item`, {
+        itemId: cancellingItem._id,
+        itemIndex: cancellingItemIndex,
+        reason: reasonTrimmed
+      });
+      toast.show(`Item "${cancellingItem.name}" cancelled and stock restored`, 'success', 'Product Cancelled');
+      setCancelItemModalVisible(false);
+      loadOrders(true);
+    } catch (err: any) {
+      haptics.errorNotification();
+      toast.show(err?.response?.data?.message || 'Failed to cancel item', 'error');
+    } finally {
+      setIsCancellingItem(false);
+    }
+  };
+
   const handleReorderEntireOrder = async (order: Order) => {
     if (!order.items || order.items.length === 0) return;
-    haptics.mediumImpact();
     setReorderingId(order._id);
-    let addedCount = 0;
-    let unavailableCount = 0;
+    haptics.mediumImpact();
 
     try {
+      let addedCount = 0;
+      let unavailableCount = 0;
+
       for (const item of order.items) {
-        const pid = typeof item.product === 'object' && item.product ? item.product._id : String(item.product);
+        if (item.status === 'cancelled') continue;
+        const pid = typeof item.product === 'object' && item.product ? (item.product as any)._id : String(item.product);
         if (!pid) continue;
 
         try {
           const res = await api.get(`/products/${pid}`);
-          const liveProd: Product = res.data.data;
-
+          const liveProd: Product = res.data?.data;
           if (!liveProd || !liveProd.isActive || liveProd.stock <= 0) {
             unavailableCount++;
             continue;
@@ -349,7 +429,8 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           renderItem={({ item }) => {
             const tone = statusTone(item.status);
             const isExpanded = Boolean(expandedOrders[item._id]);
-            const actionConfig = statusActionConfig[item.status];
+            const isCancelled = item.status === 'cancelled';
+            const actionConfig = !isCancelled ? statusActionConfig[item.status] : undefined;
             const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
               day: 'numeric',
               month: 'short',
@@ -377,7 +458,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
             const addrPincode = addr.pincode || addr.postalCode || '';
 
             return (
-              <View style={styles.card}>
+              <View style={[styles.card, isCancelled && styles.cardCancelled]}>
                 {/* ORDER HEADER */}
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
@@ -428,8 +509,31 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
 
-                {/* TIMELINE PROGRESS */}
-                <OrderStatusTimeline status={item.status as any} />
+                {/* ORDER-LEVEL CANCELLATION BANNER (FEATURE 5 & 7) */}
+                {isCancelled ? (
+                  <View style={styles.orderCancelledBanner}>
+                    <View style={styles.orderCancelledBannerHeader}>
+                      <MaterialCommunityIcons name="alert-circle" size={18} color={colors.danger} />
+                      <Text style={styles.orderCancelledTitle}>Order Cancelled by Admin</Text>
+                    </View>
+                    {item.cancellationReason ? (
+                      <Text style={styles.orderCancelledReasonText}>
+                        Cancellation Note:{' '}
+                        <Text style={styles.orderCancelledReasonHighlight}>
+                          "{item.cancellationReason}"
+                        </Text>
+                      </Text>
+                    ) : null}
+                    {item.cancelledAt ? (
+                      <Text style={styles.orderCancelledDateText}>
+                        Cancelled on {new Date(item.cancelledAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  /* TIMELINE PROGRESS */
+                  <OrderStatusTimeline status={item.status as any} />
+                )}
 
                 {/* EXPANDABLE ORDER DETAILS SECTION */}
                 {isExpanded ? (
@@ -448,9 +552,10 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                         const cat = getItemCategory(orderItem);
                         const unitName = getItemUnit(orderItem);
                         const isEgg = cat.toLowerCase().includes('egg');
+                        const isItemCancelled = orderItem.status === 'cancelled';
 
                         return (
-                          <View key={`item-${idx}`} style={styles.itemRow}>
+                          <View key={`item-${idx}`} style={[styles.itemRow, isItemCancelled && styles.itemRowCancelled]}>
                             {/* Product Thumbnail */}
                             <View style={styles.itemThumbWrap}>
                               {imgUrl ? (
@@ -466,19 +571,50 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
 
                             {/* Item Details */}
                             <View style={styles.itemInfo}>
-                              <Text style={styles.itemName} numberOfLines={1}>
-                                {orderItem.name}
-                              </Text>
+                              <View style={styles.itemNameRow}>
+                                <Text style={[styles.itemName, isItemCancelled && styles.itemNameCancelled]} numberOfLines={1}>
+                                  {orderItem.name}
+                                </Text>
+                                {isItemCancelled ? (
+                                  <View style={styles.itemCancelledBadge}>
+                                    <Text style={styles.itemCancelledBadgeText}>CANCELLED</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+
                               <Text style={styles.itemCategory}>
                                 {cat} {orderItem.packSize ? `• ${orderItem.packSize}` : ''}
                               </Text>
+
                               <Text style={styles.itemQtyPrice}>
                                 {orderItem.quantity} {unitName}{orderItem.quantity > 1 ? 's' : ''} × {formatINR(orderItem.unitPrice)}
                               </Text>
+
+                              {/* Item cancellation reason note (FEATURE 6 & 7) */}
+                              {isItemCancelled && orderItem.cancellationReason ? (
+                                <View style={styles.itemCancellationNoteBox}>
+                                  <Ionicons name="information-circle-outline" size={13} color={colors.danger} />
+                                  <Text style={styles.itemCancellationNoteText}>
+                                    Note: "{orderItem.cancellationReason}"
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Admin Cancel Item button (FEATURE 6) */}
+                              {user?.role === 'admin' && !isCancelled && item.status !== 'delivered' && !isItemCancelled && (
+                                <TouchableOpacity
+                                  style={styles.cancelItemBtn}
+                                  onPress={() => openCancelItemModal(item, orderItem, idx)}
+                                  hitSlop={6}
+                                >
+                                  <MaterialCommunityIcons name="close-circle-outline" size={13} color={colors.danger} />
+                                  <Text style={styles.cancelItemBtnText}>Cancel Product</Text>
+                                </TouchableOpacity>
+                              )}
                             </View>
 
                             {/* Line Total */}
-                            <Text style={styles.itemSubtotal}>
+                            <Text style={[styles.itemSubtotal, isItemCancelled && styles.itemSubtotalCancelled]}>
                               {formatINR(orderItem.lineTotal || orderItem.subtotal || orderItem.unitPrice * orderItem.quantity)}
                             </Text>
                           </View>
@@ -486,7 +622,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                       })}
                     </View>
 
-                    {/* 2. DELIVERY ADDRESS (SEPARATED FIELDS) */}
+                    {/* 2. DELIVERY ADDRESS */}
                     <View style={styles.addressBlock}>
                       <View style={styles.addressTitleRow}>
                         <Ionicons name="location-outline" size={16} color={colors.primary} />
@@ -541,41 +677,43 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                     </View>
 
                     {/* 3. DELIVERY INFORMATION & REAL TIME ETA */}
-                    <View style={styles.etaCard}>
-                      <View style={styles.etaHeaderRow}>
-                        <MaterialCommunityIcons name="truck-delivery-outline" size={17} color={colors.primary} />
-                        <Text style={styles.etaHeaderTitle}>Delivery Status & ETA</Text>
+                    {!isCancelled && (
+                      <View style={styles.etaCard}>
+                        <View style={styles.etaHeaderRow}>
+                          <MaterialCommunityIcons name="truck-delivery-outline" size={17} color={colors.primary} />
+                          <Text style={styles.etaHeaderTitle}>Delivery Status & ETA</Text>
+                        </View>
+
+                        {item.status === 'delivered' ? (
+                          <View style={styles.etaStatusBox}>
+                            <Ionicons name="checkmark-circle" size={15} color={colors.success} />
+                            <Text style={styles.etaStatusSuccessText}>
+                              Delivered on {item.deliveredAt ? new Date(item.deliveredAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : date}
+                            </Text>
+                          </View>
+                        ) : item.estimatedDeliveryDate ? (
+                          <View style={styles.etaStatusBox}>
+                            <Ionicons name="calendar-outline" size={15} color={colors.primary} />
+                            <Text style={styles.etaStatusText}>
+                              Expected Delivery: {new Date(item.estimatedDeliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {item.estimatedDeliverySlot ? ` (${item.estimatedDeliverySlot})` : ''}
+                            </Text>
+                          </View>
+                        ) : item.status === 'shipped' ? (
+                          <View style={styles.etaStatusBox}>
+                            <Ionicons name="paper-plane-outline" size={15} color={colors.primary} />
+                            <Text style={styles.etaStatusText}>Dispatched for delivery • Expected within 24–48 hrs</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.etaStatusBox}>
+                            <Ionicons name="information-circle-outline" size={15} color={colors.textSecondary} />
+                            <Text style={styles.etaStatusMutedText}>Delivery estimate will be available after dispatch.</Text>
+                          </View>
+                        )}
                       </View>
+                    )}
 
-                      {item.status === 'delivered' ? (
-                        <View style={styles.etaStatusBox}>
-                          <Ionicons name="checkmark-circle" size={15} color={colors.success} />
-                          <Text style={styles.etaStatusSuccessText}>
-                            Delivered on {item.deliveredAt ? new Date(item.deliveredAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : date}
-                          </Text>
-                        </View>
-                      ) : item.estimatedDeliveryDate ? (
-                        <View style={styles.etaStatusBox}>
-                          <Ionicons name="calendar-outline" size={15} color={colors.primary} />
-                          <Text style={styles.etaStatusText}>
-                            Expected Delivery: {new Date(item.estimatedDeliveryDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            {item.estimatedDeliverySlot ? ` (${item.estimatedDeliverySlot})` : ''}
-                          </Text>
-                        </View>
-                      ) : item.status === 'shipped' ? (
-                        <View style={styles.etaStatusBox}>
-                          <Ionicons name="paper-plane-outline" size={15} color={colors.primary} />
-                          <Text style={styles.etaStatusText}>Dispatched for delivery • Expected within 24–48 hrs</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.etaStatusBox}>
-                          <Ionicons name="information-circle-outline" size={15} color={colors.textSecondary} />
-                          <Text style={styles.etaStatusMutedText}>Delivery estimate will be available after dispatch.</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* 4. FINANCIAL PAYMENT BREAKDOWN (SEPARATED PAID AND DUE) */}
+                    {/* 4. FINANCIAL PAYMENT BREAKDOWN */}
                     <View style={styles.priceBreakdown}>
                       <View style={styles.priceRow}>
                         <Text style={styles.priceLabel}>Items Subtotal</Text>
@@ -640,7 +778,7 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                   ) : null}
 
                   {/* ADMIN MARK AS PAID BUTTON */}
-                  {isAdminOrSeller && amountDue > 0 && (
+                  {isAdminOrSeller && amountDue > 0 && !isCancelled && (
                     <Pressable
                       style={styles.markPaidButton}
                       disabled={updatingId === item._id}
@@ -651,8 +789,20 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
                     </Pressable>
                   )}
 
+                  {/* ADMIN CANCEL ORDER BUTTON (FEATURE 5) */}
+                  {user?.role === 'admin' && !isCancelled && item.status !== 'delivered' && (
+                    <TouchableOpacity
+                      style={styles.adminCancelOrderBtn}
+                      onPress={() => openCancelOrderModal(item)}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialCommunityIcons name="close-circle-outline" size={16} color={colors.danger} />
+                      <Text style={styles.adminCancelOrderBtnText}>Cancel Wholesale Order</Text>
+                    </TouchableOpacity>
+                  )}
+
                   {/* BUYER REORDER ENTIRE ORDER BUTTON */}
-                  {!isAdminOrSeller && (
+                  {!isAdminOrSeller && !isCancelled && (
                     <AppButton
                       title="Reorder Entire Order"
                       icon="refresh"
@@ -678,6 +828,160 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
           }}
         />
       )}
+
+      {/* ADMIN CANCEL ORDER MODAL (FEATURE 5) */}
+      <Modal
+        visible={cancelOrderModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!isCancellingOrder) setCancelOrderModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderTitleRow}>
+                <MaterialCommunityIcons name="alert-octagon-outline" size={22} color={colors.danger} />
+                <View>
+                  <Text style={styles.modalTitle}>Cancel Wholesale Order</Text>
+                  <Text style={styles.modalSub}>
+                    Order #{cancellingOrder?._id?.slice(-6)?.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setCancelOrderModalVisible(false)}
+                disabled={isCancellingOrder}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalWarningText}>
+              Cancelling this order will restore reserved product stock back to inventory and immediately notify the customer with your cancellation reason note.
+            </Text>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Reason for Cancellation *</Text>
+              <TextInput
+                style={styles.formInputMultiline}
+                placeholder="e.g. Out of stock at distributor warehouse / customer requested / logistical bottleneck"
+                placeholderTextColor={colors.textMuted}
+                value={cancelOrderReason}
+                onChangeText={setCancelOrderReason}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setCancelOrderModalVisible(false)}
+                disabled={isCancellingOrder}
+              >
+                <Text style={styles.modalCancelBtnText}>Dismiss</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalDestructiveBtn, isCancellingOrder && { opacity: 0.6 }]}
+                onPress={handleConfirmCancelOrder}
+                disabled={isCancellingOrder}
+              >
+                {isCancellingOrder ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="close-circle" size={16} color={colors.white} />
+                    <Text style={styles.modalDestructiveBtnText}>Confirm Cancellation</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ADMIN CANCEL ITEM MODAL (FEATURE 6) */}
+      <Modal
+        visible={cancelItemModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!isCancellingItem) setCancelItemModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderTitleRow}>
+                <MaterialCommunityIcons name="package-variant-minus" size={22} color={colors.danger} />
+                <View>
+                  <Text style={styles.modalTitle}>Cancel Product from Order</Text>
+                  <Text style={styles.modalSub}>{cancellingItem?.name}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setCancelItemModalVisible(false)}
+                disabled={isCancellingItem}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalWarningText}>
+              This item will be marked as cancelled in the customer's order. Stock for {cancellingItem?.quantity} unit(s) will be automatically restored to the catalog.
+            </Text>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Item Cancellation Note for Customer *</Text>
+              <TextInput
+                style={styles.formInputMultiline}
+                placeholder="e.g. This specific brand/variant is currently out of stock. Remaining order items will be dispatched."
+                placeholderTextColor={colors.textMuted}
+                value={cancelItemReason}
+                onChangeText={setCancelItemReason}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setCancelItemModalVisible(false)}
+                disabled={isCancellingItem}
+              >
+                <Text style={styles.modalCancelBtnText}>Dismiss</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalDestructiveBtn, isCancellingItem && { opacity: 0.6 }]}
+                onPress={handleConfirmCancelItem}
+                disabled={isCancellingItem}
+              >
+                {isCancellingItem ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="close-circle" size={16} color={colors.white} />
+                    <Text style={styles.modalDestructiveBtnText}>Cancel Item</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -734,6 +1038,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: 12,
     ...shadows.card
+  },
+  cardCancelled: {
+    borderColor: '#FECACA',
+    backgroundColor: colors.card
   },
   cardTop: {
     flexDirection: 'row',
@@ -828,6 +1136,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800'
   },
+  orderCancelledBanner: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    gap: 5
+  },
+  orderCancelledBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  orderCancelledTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.danger
+  },
+  orderCancelledReasonText: {
+    fontSize: 12,
+    color: colors.text,
+    lineHeight: 17
+  },
+  orderCancelledReasonHighlight: {
+    fontWeight: '700',
+    color: '#991B1B'
+  },
+  orderCancelledDateText: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+    marginTop: 2
+  },
   expandedSection: {
     gap: 12
   },
@@ -859,6 +1199,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: 10
   },
+  itemRowCancelled: {
+    backgroundColor: '#FFF5F5',
+    borderColor: '#FECACA'
+  },
   itemThumbWrap: {
     width: 44,
     height: 44,
@@ -878,10 +1222,33 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2
   },
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap'
+  },
   itemName: {
     color: colors.text,
     fontSize: 13,
     fontWeight: '800'
+  },
+  itemNameCancelled: {
+    color: colors.textMuted,
+    textDecorationLine: 'line-through'
+  },
+  itemCancelledBadge: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: '#FECACA'
+  },
+  itemCancelledBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: colors.danger
   },
   itemCategory: {
     color: colors.textSecondary,
@@ -893,10 +1260,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700'
   },
+  itemCancellationNoteBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: radius.xs,
+    marginTop: 3
+  },
+  itemCancellationNoteText: {
+    fontSize: 10.5,
+    color: colors.danger,
+    fontWeight: '600',
+    flex: 1
+  },
+  cancelItemBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.xs,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA'
+  },
+  cancelItemBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.danger
+  },
   itemSubtotal: {
     color: colors.navy,
     fontSize: 13.5,
     fontWeight: '900'
+  },
+  itemSubtotalCancelled: {
+    color: colors.textMuted,
+    textDecorationLine: 'line-through'
   },
   addressBlock: {
     backgroundColor: colors.cardAlt,
@@ -934,26 +1339,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     flex: 1
-  },
-  addressRecipient: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '800'
-  },
-  inlineInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4
-  },
-  addressPhone: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '600'
-  },
-  addressBody: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 16
   },
   notesBox: {
     flexDirection: 'row',
@@ -1090,6 +1475,22 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800'
   },
+  adminCancelOrderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA'
+  },
+  adminCancelOrderBtnText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '800'
+  },
   detailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1107,5 +1508,114 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     marginLeft: 8
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'flex-end'
+  },
+  modalCard: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: 20,
+    gap: 14,
+    maxHeight: '85%'
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: 12
+  },
+  modalHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.navy
+  },
+  modalSub: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2
+  },
+  modalCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  modalWarningText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    backgroundColor: colors.cardAlt,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  formGroup: {
+    gap: 6
+  },
+  formLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.text
+  },
+  formInputMultiline: {
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: 12,
+    fontSize: 13.5,
+    color: colors.text,
+    minHeight: 80,
+    textAlignVertical: 'top'
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingBottom: 16
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  modalCancelBtnText: {
+    color: colors.text,
+    fontSize: 13.5,
+    fontWeight: '700'
+  },
+  modalDestructiveBtn: {
+    flex: 2,
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  modalDestructiveBtnText: {
+    color: colors.white,
+    fontSize: 13.5,
+    fontWeight: '800'
   }
 });

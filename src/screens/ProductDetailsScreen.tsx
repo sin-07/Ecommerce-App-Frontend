@@ -161,8 +161,10 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
   if (error && !resolved) return <ErrorView message={error} onRetry={() => dispatch(fetchProductById(productId))} />;
   if (!resolved) return <ErrorView message="Product item unavailable" />;
 
-  const isOutOfStock = resolved.stock <= 0;
-  const isLowStock = resolved.stock > 0 && resolved.stock <= 10;
+  const isUnavailable = resolved.availabilityStatus === 'unavailable' || resolved.isActive === false;
+  const isOutOfStock = !isUnavailable && (resolved.availabilityStatus === 'out_of_stock' || resolved.stock <= 0);
+  const isLowStock = !isUnavailable && !isOutOfStock && resolved.stock > 0 && resolved.stock <= 10;
+  const isPurchasable = !isUnavailable && !isOutOfStock;
   const moq = Math.max(1, resolved.minOrderQuantity || 1);
   const maxQty = Math.max(moq, resolved.stock || moq);
   const unitName = resolved.unit || 'unit';
@@ -250,9 +252,9 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
       return;
     }
 
-    if (isOutOfStock) {
+    if (!isPurchasable) {
       haptics.errorNotification();
-      toast.error('This product is currently out of stock.');
+      toast.error(isUnavailable ? 'This product is currently unavailable.' : 'This product is currently out of stock.');
       return;
     }
 
@@ -317,9 +319,9 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
       return;
     }
 
-    if (isOutOfStock) {
+    if (!isPurchasable) {
       haptics.errorNotification();
-      toast.error('This product is currently out of stock.');
+      toast.error(isUnavailable ? 'This product is currently unavailable.' : 'This product is currently out of stock.');
       return;
     }
 
@@ -407,21 +409,29 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
           <View
             style={[
               styles.stockFloatingBadge,
-              { backgroundColor: isOutOfStock ? '#FEE2E2' : isLowStock ? '#FEF3C7' : '#DCFCE7' }
+              isUnavailable
+                ? { backgroundColor: '#F1F5F9' }
+                : { backgroundColor: isOutOfStock ? '#FEE2E2' : isLowStock ? '#FEF3C7' : '#DCFCE7' }
             ]}
           >
             <Feather
-              name={isOutOfStock ? 'x-circle' : isLowStock ? 'alert-circle' : 'check-circle'}
+              name={isUnavailable ? 'slash' : isOutOfStock ? 'x-circle' : isLowStock ? 'alert-circle' : 'check-circle'}
               size={11}
-              color={isOutOfStock ? '#DC2626' : isLowStock ? '#D97706' : '#16A34A'}
+              color={isUnavailable ? '#64748B' : isOutOfStock ? '#DC2626' : isLowStock ? '#D97706' : '#16A34A'}
             />
             <Text
               style={[
                 styles.stockFloatingText,
-                { color: isOutOfStock ? '#DC2626' : isLowStock ? '#D97706' : '#16A34A' }
+                { color: isUnavailable ? '#64748B' : isOutOfStock ? '#DC2626' : isLowStock ? '#D97706' : '#16A34A' }
               ]}
             >
-              {isOutOfStock ? 'Out of Stock' : isLowStock ? `Low Stock (${resolved.stock})` : 'In Stock & Ready'}
+              {isUnavailable
+                ? 'Currently Unavailable'
+                : isOutOfStock
+                ? 'Out of Stock'
+                : isLowStock
+                ? `Low Stock (${resolved.stock})`
+                : 'In Stock & Ready'}
             </Text>
           </View>
         </View>
@@ -594,18 +604,26 @@ export const ProductDetailsScreen: React.FC<Props> = ({ route, navigation }) => 
 
           <View style={styles.actionButtons}>
             <AppButton
-              title={inCart > 0 ? `Update Cart (${quantity} ${unitName}s)` : `Add ${quantity} ${unitName}${quantity === 1 ? '' : 's'} to Cart`}
-              icon={inCart > 0 ? 'cart-check' : 'cart-plus'}
+              title={
+                isUnavailable
+                  ? 'Currently Unavailable'
+                  : isOutOfStock
+                  ? 'Out of Stock'
+                  : inCart > 0
+                  ? `Update Cart (${quantity} ${unitName}s)`
+                  : `Add ${quantity} ${unitName}${quantity === 1 ? '' : 's'} to Cart`
+              }
+              icon={isUnavailable ? 'close-circle' : isOutOfStock ? 'alert-circle' : inCart > 0 ? 'cart-check' : 'cart-plus'}
               loading={isCartPending}
               onPress={addOrUpdateCart}
-              disabled={isOutOfStock}
+              disabled={!isPurchasable}
             />
             <AppButton
-              title="Buy Now / Checkout"
+              title={isUnavailable ? 'Unavailable' : isOutOfStock ? 'Out of Stock' : 'Buy Now / Checkout'}
               icon="flash"
               variant="secondary"
               onPress={handleBuyNow}
-              disabled={isOutOfStock || isCartPending}
+              disabled={!isPurchasable || isCartPending}
             />
           </View>
         </View>

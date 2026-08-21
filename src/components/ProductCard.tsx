@@ -89,8 +89,10 @@ const ProductCardBase: React.FC<Props> = ({
 
   const stockStatus = getStockStatus(product.stock);
   const stockTone = getStockTone(product.stock);
-  const isOutOfStock = stockStatus === 'out_of_stock';
-  const isLowStock = stockStatus === 'low_stock';
+  const isUnavailable = product.availabilityStatus === 'unavailable' || product.isActive === false;
+  const isOutOfStock = !isUnavailable && (product.availabilityStatus === 'out_of_stock' || product.stock < 1 || stockStatus === 'out_of_stock');
+  const isLowStock = !isUnavailable && !isOutOfStock && stockStatus === 'low_stock';
+  const isPurchasable = !isUnavailable && !isOutOfStock;
   const moq = Math.max(1, product.minOrderQuantity || 1);
   const catTone = getCategoryBadgeTone(product.category, isDark);
 
@@ -110,6 +112,10 @@ const ProductCardBase: React.FC<Props> = ({
   };
 
   const handleIncrementPress = () => {
+    if (!isPurchasable) {
+      toast.info(isUnavailable ? 'This product is currently unavailable.' : 'This product is out of stock.');
+      return;
+    }
     if (!user) {
       if (onRequireAuth) onRequireAuth('cart', product, moq);
       return;
@@ -140,7 +146,7 @@ const ProductCardBase: React.FC<Props> = ({
         {showImage ? (
           <Image
             source={{ uri: imageUri }}
-            style={[styles.image, isOutOfStock && styles.imageMuted]}
+            style={[styles.image, (isOutOfStock || isUnavailable) && styles.imageMuted]}
             resizeMode="cover"
             onError={() => setImageError(true)}
           />
@@ -164,16 +170,23 @@ const ProductCardBase: React.FC<Props> = ({
         <View
           style={[
             styles.stockBadge,
-            { backgroundColor: stockTone.backgroundColor, borderColor: stockTone.borderColor }
+            isUnavailable
+              ? { backgroundColor: '#F1F5F9', borderColor: '#CBD5E1' }
+              : { backgroundColor: stockTone.backgroundColor, borderColor: stockTone.borderColor }
           ]}
         >
           <Feather
-            name={isOutOfStock ? 'x-circle' : isLowStock ? 'alert-circle' : 'check-circle'}
+            name={isUnavailable ? 'slash' : isOutOfStock ? 'x-circle' : isLowStock ? 'alert-circle' : 'check-circle'}
             size={9.5}
-            color={stockTone.iconColor}
+            color={isUnavailable ? '#64748B' : stockTone.iconColor}
           />
-          <Text style={[styles.stockBadgeText, { color: stockTone.textColor }]}>
-            {isOutOfStock ? 'Out of stock' : isLowStock ? 'Low stock' : 'In stock'}
+          <Text
+            style={[
+              styles.stockBadgeText,
+              { color: isUnavailable ? '#64748B' : stockTone.textColor }
+            ]}
+          >
+            {isUnavailable ? 'Unavailable' : isOutOfStock ? 'Out of stock' : isLowStock ? 'Low stock' : 'In stock'}
           </Text>
         </View>
 
@@ -280,8 +293,8 @@ const ProductCardBase: React.FC<Props> = ({
 
             <Pressable
               onPress={handleIncrementPress}
-              disabled={isOutOfStock || isPending}
-              style={[styles.stepperButton, (isOutOfStock || isPending) && styles.disabled]}
+              disabled={!isPurchasable || isPending}
+              style={[styles.stepperButton, (!isPurchasable || isPending) && styles.disabled]}
               hitSlop={6}
               accessibilityRole="button"
               accessibilityLabel="Increase quantity"
@@ -304,10 +317,10 @@ const ProductCardBase: React.FC<Props> = ({
 
             <Pressable
               onPress={handleIncrementPress}
-              disabled={isOutOfStock || isPending}
+              disabled={!isPurchasable || isPending}
               style={({ pressed }) => [
                 styles.addButton,
-                (isOutOfStock || isPending) && styles.disabled,
+                (!isPurchasable || isPending) && styles.disabled,
                 pressed && !isPending && styles.pressed
               ]}
               accessibilityRole="button"
@@ -320,8 +333,14 @@ const ProductCardBase: React.FC<Props> = ({
                 </View>
               ) : (
                 <>
-                  <Ionicons name="cart-outline" size={14} color={colors.white} />
-                  <Text style={styles.addButtonText}>Add to Cart</Text>
+                  <Ionicons
+                    name={isUnavailable ? 'close-circle-outline' : isOutOfStock ? 'alert-circle-outline' : 'cart-outline'}
+                    size={14}
+                    color={colors.white}
+                  />
+                  <Text style={styles.addButtonText}>
+                    {isUnavailable ? 'Unavailable' : isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
+                  </Text>
                 </>
               )}
             </Pressable>

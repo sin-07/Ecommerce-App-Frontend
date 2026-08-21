@@ -11,16 +11,18 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput as NativeTextInput,
+  TouchableOpacity,
   View
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BeverageLoader } from '../components/BeverageLoader';
 import { EmptyState, LoadingView } from '../components/StateViews';
-import { API_BASE_URL } from '../constants/api';
-import { CartItem } from '../constants/types';
+import { API_BASE_URL, api } from '../constants/api';
+import { CartItem, SavedAddress } from '../constants/types';
 import { colors, radius, shadows } from '../constants/theme';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -142,6 +144,12 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const { user } = useAppSelector((state) => state.auth);
   const { error } = useAppSelector((state) => state.orders);
 
+  // Saved Addresses State
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [saveAddressToProfile, setSaveAddressToProfile] = useState(true);
+
   // Pre-fill customer details from profile
   const [contactName, setContactName] = useState(user?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
@@ -158,28 +166,85 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [placedOrderRef, setPlacedOrderRef] = useState<string>('');
 
+  const loadUserAddresses = useCallback(async () => {
+    if (!user) return;
+    setLoadingAddresses(true);
+    try {
+      const res = await api.get('/users/addresses');
+      const addrs: SavedAddress[] = res.data.data || [];
+      setSavedAddresses(addrs);
+      if (addrs.length > 0) {
+        const defaultAddr = addrs.find((a) => a.isDefault) || addrs[0];
+        const addrId = defaultAddr._id || defaultAddr.id || '';
+        setSelectedAddressId(addrId);
+        setContactName(defaultAddr.fullName || user?.name || '');
+        setPhoneNumber(defaultAddr.phone || user?.phone || '');
+        setAddressLine1(defaultAddr.addressLine1 || '');
+        setAddressLine2(defaultAddr.addressLine2 || '');
+        setCity(defaultAddr.city || '');
+        setState(defaultAddr.state || '');
+        setPincode(defaultAddr.postalCode || '');
+      } else {
+        setSelectedAddressId('new');
+      }
+    } catch (err: any) {
+      console.error('Failed to load user addresses:', err?.message);
+    } finally {
+      setLoadingAddresses(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user) {
       dispatch(hydrateCart());
       dispatch(fetchCart());
+      loadUserAddresses();
     }
-  }, [dispatch, user]);
+  }, [dispatch, user, loadUserAddresses]);
 
   const onRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      if (user) await dispatch(fetchCart());
+      if (user) {
+        await Promise.all([dispatch(fetchCart()), loadUserAddresses()]);
+      }
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, dispatch, user]);
+  }, [isRefreshing, dispatch, user, loadUserAddresses]);
 
-  // Update pre-filled fields if user profile updates
+  // Update pre-filled fields if user profile updates and no saved address was selected
   useEffect(() => {
-    if (user?.name && !contactName) setContactName(user.name);
-    if (user?.phone && !phoneNumber) setPhoneNumber(user.phone);
-  }, [user?.name, user?.phone]);
+    if (user?.name && !contactName && selectedAddressId === 'new') setContactName(user.name);
+    if (user?.phone && !phoneNumber && selectedAddressId === 'new') setPhoneNumber(user.phone);
+  }, [user?.name, user?.phone, selectedAddressId]);
+
+  const handleSelectSavedAddress = (addr: SavedAddress) => {
+    haptics.selection();
+    const addrId = addr._id || addr.id || '';
+    setSelectedAddressId(addrId);
+    setContactName(addr.fullName || '');
+    setPhoneNumber(addr.phone || '');
+    setAddressLine1(addr.addressLine1 || '');
+    setAddressLine2(addr.addressLine2 || '');
+    setCity(addr.city || '');
+    setState(addr.state || '');
+    setPincode(addr.postalCode || '');
+  };
+
+  const handleSelectNewAddress = () => {
+    haptics.selection();
+    setSelectedAddressId('new');
+    setContactName(user?.name || '');
+    setPhoneNumber(user?.phone || '');
+    setAddressLine1('');
+    setAddressLine2('');
+    setCity('');
+    setState('');
+    setPincode('');
+    setSaveAddressToProfile(true);
+  };
 
   const summary = useMemo(
     () =>
@@ -349,6 +414,26 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
       haptics.successNotification();
       setSuccessModalVisible(true);
       dispatch(clearCart());
+
+      // Auto-save new address to profile if enabled
+      if (selectedAddressId === 'new' && saveAddressToProfile && user) {
+        api.post('/users/addresses', {
+          fullName: trimmedName,
+          phone: cleanPhone,
+          addressLine1: trimmedLine1,
+          addressLine2: trimmedLine2,
+          city: trimmedCity,
+          state: trimmedState,
+          postalCode: cleanPin,
+          country: 'India',
+          isDefault: savedAddresses.length === 0
+        })
+          .then((res) => {
+            setSavedAddresses(res.data.data?.addresses || []);
+          })
+          .catch((err) => console.error('Failed to auto-save address:', err?.message));
+      }
+
       setAddressLine1('');
       setAddressLine2('');
       setCity('');
@@ -508,10 +593,88 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.cardHeadingRow}>
               <View>
                 <Text style={styles.cardTitle}>Delivery Information</Text>
-                <Text style={styles.cardSubtitle}>Order notification will be sent to {user?.email}</Text>
+                <Text style={styles.cardSubtitle}>Wholesale order notification will be sent to {user?.email}</Text>
               </View>
               <MaterialCommunityIcons name="truck-delivery-outline" size={24} color={colors.primary} />
             </View>
+
+            {/* SAVED ADDRESS SELECTOR CARDS */}
+            {savedAddresses.length > 0 && (
+              <View style={styles.savedAddressesSelectorSection}>
+                <View style={styles.savedAddressesHeaderRow}>
+                  <Text style={styles.savedAddressesSectionTitle}>Select Saved Address</Text>
+                  <Text style={styles.savedAddressesSectionCount}>
+                    {savedAddresses.length} address{savedAddresses.length === 1 ? '' : 'es'}
+                  </Text>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.savedAddressesScroll}
+                >
+                  {savedAddresses.map((addr) => {
+                    const addrId = addr._id || addr.id || '';
+                    const isSelected = selectedAddressId === addrId;
+                    const isDefault = Boolean(addr.isDefault);
+
+                    return (
+                      <TouchableOpacity
+                        key={addrId}
+                        style={[
+                          styles.checkoutAddressCard,
+                          isSelected && styles.checkoutAddressCardSelected
+                        ]}
+                        onPress={() => handleSelectSavedAddress(addr)}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.checkoutAddrCardTop}>
+                          <View style={styles.checkoutAddrNameCol}>
+                            <Text style={styles.checkoutAddrName} numberOfLines={1}>
+                              {addr.fullName}
+                            </Text>
+                            {isDefault ? (
+                              <View style={styles.checkoutDefaultBadge}>
+                                <Text style={styles.checkoutDefaultBadgeText}>DEFAULT</Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          <View style={[styles.checkoutRadioOuter, isSelected && styles.checkoutRadioOuterSelected]}>
+                            {isSelected ? <View style={styles.checkoutRadioInner} /> : null}
+                          </View>
+                        </View>
+
+                        <Text style={styles.checkoutAddrPhone}>+91 {addr.phone}</Text>
+                        <Text style={styles.checkoutAddrLine} numberOfLines={2}>
+                          {addr.addressLine1}{addr.addressLine2 ? `, ${addr.addressLine2}` : ''}
+                        </Text>
+                        <Text style={styles.checkoutAddrCityState}>
+                          {addr.city}, {addr.state} - <Text style={{ fontWeight: '800' }}>{addr.postalCode}</Text>
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {/* USE NEW ADDRESS CARD */}
+                  <TouchableOpacity
+                    style={[
+                      styles.checkoutAddressCard,
+                      styles.checkoutNewAddressCard,
+                      selectedAddressId === 'new' && styles.checkoutAddressCardSelected
+                    ]}
+                    onPress={handleSelectNewAddress}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.checkoutNewAddrIconCircle}>
+                      <Ionicons name="add" size={20} color={colors.primary} />
+                    </View>
+                    <Text style={styles.checkoutNewAddrTitle}>+ New Address</Text>
+                    <Text style={styles.checkoutNewAddrSub}>Deliver elsewhere</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            )}
 
             {/* CONTACT NAME */}
             <View style={styles.formField}>
@@ -636,6 +799,22 @@ export const CartScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
             </View>
+
+            {/* SAVE TO PROFILE CHECKBOX IF ENTERING NEW ADDRESS */}
+            {selectedAddressId === 'new' && (
+              <View style={styles.saveAddressSwitchRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.saveAddressSwitchLabel}>Save address for future wholesale orders</Text>
+                  <Text style={styles.saveAddressSwitchSub}>Avoid re-entering delivery details on next order</Text>
+                </View>
+                <Switch
+                  value={saveAddressToProfile}
+                  onValueChange={setSaveAddressToProfile}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.white}
+                />
+              </View>
+            )}
 
             {/* OPTIONAL NOTES */}
             <View style={styles.formField}>
@@ -1129,5 +1308,146 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13.5,
     fontWeight: '700'
+  },
+  savedAddressesSelectorSection: {
+    gap: 8,
+    marginBottom: 4
+  },
+  savedAddressesHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  savedAddressesSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.navy
+  },
+  savedAddressesSectionCount: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: '600'
+  },
+  savedAddressesScroll: {
+    gap: 10,
+    paddingVertical: 4
+  },
+  checkoutAddressCard: {
+    width: 220,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    padding: 12,
+    gap: 4
+  },
+  checkoutAddressCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.card
+  },
+  checkoutAddrCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between'
+  },
+  checkoutAddrNameCol: {
+    flex: 1,
+    paddingRight: 6
+  },
+  checkoutAddrName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.navy
+  },
+  checkoutDefaultBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radius.xs,
+    marginTop: 2,
+    borderWidth: 1,
+    borderColor: '#BFDBFE'
+  },
+  checkoutDefaultBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: colors.primary
+  },
+  checkoutRadioOuter: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2
+  },
+  checkoutRadioOuterSelected: {
+    borderColor: colors.primary
+  },
+  checkoutRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary
+  },
+  checkoutAddrPhone: {
+    fontSize: 11.5,
+    color: colors.textSecondary,
+    fontWeight: '600'
+  },
+  checkoutAddrLine: {
+    fontSize: 11.5,
+    color: colors.text,
+    lineHeight: 16
+  },
+  checkoutAddrCityState: {
+    fontSize: 11,
+    color: colors.textMuted
+  },
+  checkoutNewAddressCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderStyle: 'dashed'
+  },
+  checkoutNewAddrIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4
+  },
+  checkoutNewAddrTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.primary
+  },
+  checkoutNewAddrSub: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+    textAlign: 'center'
+  },
+  saveAddressSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginVertical: 4
+  },
+  saveAddressSwitchLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.text
+  },
+  saveAddressSwitchSub: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+    marginTop: 1
   }
 });

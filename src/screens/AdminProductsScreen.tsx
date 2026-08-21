@@ -152,17 +152,28 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const handleToggleActive = async (item: Product) => {
-    const nextActive = item.isActive === false ? true : false;
+  const handleChangeAvailability = async (item: Product, status: 'active' | 'out_of_stock' | 'unavailable') => {
     setTogglingId(item._id);
     haptics.selection();
     try {
-      await api.patch(`/admin/products/${item._id}/status`, { isActive: nextActive });
-      toast.success(`Product marked as ${nextActive ? 'Active (Live)' : 'Inactive (Hidden)'}`);
-      setItems((prev) => prev.map((p) => (p._id === item._id ? { ...p, isActive: nextActive } : p)));
+      await api.patch(`/admin/products/${item._id}/status`, { availabilityStatus: status });
+      const label =
+        status === 'active'
+          ? 'Available (Active)'
+          : status === 'out_of_stock'
+          ? 'Out of Stock'
+          : 'Unavailable (Disabled)';
+      toast.success(`Product marked as ${label}`);
+      setItems((prev) =>
+        prev.map((p) =>
+          p._id === item._id
+            ? { ...p, availabilityStatus: status, isActive: status !== 'unavailable' }
+            : p
+        )
+      );
     } catch (err: any) {
       haptics.errorNotification();
-      toast.error(err?.response?.data?.message || 'Failed to update product status');
+      toast.error(err?.response?.data?.message || 'Failed to update product availability');
     } finally {
       setTogglingId(null);
     }
@@ -170,8 +181,11 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
 
   const renderItem = ({ item, index }: { item: Product; index: number }) => {
     const uri = imageUrl(item.imageUrl);
-    const active = item.isActive !== false;
-    const outOfStock = item.stock <= 0;
+    const availStatus: 'active' | 'out_of_stock' | 'unavailable' =
+      item.availabilityStatus || (item.isActive === false ? 'unavailable' : item.stock <= 0 ? 'out_of_stock' : 'active');
+    const isOutOfStock = availStatus === 'out_of_stock';
+    const isUnavailable = availStatus === 'unavailable';
+    const isActive = availStatus === 'active';
     const lowStock = item.stock > 0 && item.stock < 10;
     const unit = item.unit || 'unit';
     const isToggling = togglingId === item._id;
@@ -197,18 +211,23 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
                   style={[
                     styles.badge,
                     {
-                      backgroundColor: active ? colors.successSurface : '#F1F5F9',
-                      borderColor: active ? colors.successBorder : '#CBD5E1'
+                      backgroundColor: isActive ? colors.successSurface : isOutOfStock ? '#FEF3C7' : '#FEE2E2',
+                      borderColor: isActive ? colors.successBorder : isOutOfStock ? '#FDE68A' : '#FECACA'
                     }
                   ]}
                 >
                   <MaterialCommunityIcons
-                    name={active ? 'check-circle-outline' : 'pause-circle-outline'}
+                    name={isActive ? 'check-circle-outline' : isOutOfStock ? 'alert-circle-outline' : 'close-circle-outline'}
                     size={12}
-                    color={active ? colors.success : colors.textSecondary}
+                    color={isActive ? colors.success : isOutOfStock ? '#D97706' : '#DC2626'}
                   />
-                  <Text style={[styles.badgeText, { color: active ? colors.success : colors.textSecondary }]}>
-                    {active ? 'Active' : 'Inactive'}
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      { color: isActive ? colors.success : isOutOfStock ? '#D97706' : '#DC2626' }
+                    ]}
+                  >
+                    {isActive ? 'Available' : isOutOfStock ? 'Out of Stock' : 'Unavailable'}
                   </Text>
                 </View>
                 {item.isFeatured ? (
@@ -239,8 +258,8 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
             <View>
               <Text style={styles.metricLabel}>Stock</Text>
-              <Text style={[styles.metricValue, (outOfStock || lowStock) && styles.metricWarning]}>
-                {outOfStock ? '0 (Out)' : `${item.stock} ${unit}s`}
+              <Text style={[styles.metricValue, (isOutOfStock || lowStock) && styles.metricWarning]}>
+                {isOutOfStock ? '0 (Out)' : `${item.stock} ${unit}s`}
               </Text>
             </View>
             <View>
@@ -254,10 +273,10 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
               <Text
                 style={[
                   styles.metricValue,
-                  outOfStock ? styles.metricWarning : lowStock ? styles.metricWarning : styles.metricGood
+                  isOutOfStock ? styles.metricWarning : isUnavailable ? styles.metricDanger : lowStock ? styles.metricWarning : styles.metricGood
                 ]}
               >
-                {outOfStock ? 'Out of Stock' : lowStock ? 'Low Stock' : 'Ready'}
+                {isOutOfStock ? 'Out of Stock' : isUnavailable ? 'Unavailable' : lowStock ? 'Low Stock' : 'Active'}
               </Text>
             </View>
           </View>
@@ -273,32 +292,61 @@ export const AdminProductsScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.editText}>Edit</Text>
             </Pressable>
 
-            {/* DEACTIVATE / ACTIVATE TOGGLE */}
-            <Pressable
-              style={[styles.toggleActiveBtn, !active && styles.toggleActiveBtnInactive]}
-              disabled={isToggling}
-              onPress={() => handleToggleActive(item)}
-              accessibilityLabel={active ? `Deactivate ${item.name}` : `Activate ${item.name}`}
-            >
-              {isToggling ? (
-                <ActivityIndicator
-                  size="small"
-                  color={active ? '#B45309' : colors.success}
-                  style={{ transform: [{ scale: 0.7 }] }}
-                />
-              ) : (
-                <>
-                  <MaterialCommunityIcons
-                    name={active ? 'pause-circle-outline' : 'play-circle-outline'}
-                    size={15}
-                    color={active ? '#B45309' : colors.success}
-                  />
-                  <Text style={[styles.toggleActiveText, { color: active ? '#B45309' : colors.success }]}>
-                    {active ? 'Deactivate' : 'Activate'}
-                  </Text>
-                </>
-              )}
-            </Pressable>
+            {/* STATUS ACTION 1 */}
+            {isActive ? (
+              <Pressable
+                style={[styles.toggleActiveBtn, { borderColor: '#FDE68A', backgroundColor: '#FEF3C7' }]}
+                disabled={isToggling}
+                onPress={() => handleChangeAvailability(item, 'out_of_stock')}
+              >
+                {isToggling ? (
+                  <ActivityIndicator size="small" color="#D97706" style={{ transform: [{ scale: 0.7 }] }} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#D97706" />
+                    <Text style={[styles.toggleActiveText, { color: '#D97706' }]}>Mark Out of Stock</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.toggleActiveBtn, { borderColor: colors.successBorder, backgroundColor: colors.successSurface }]}
+                disabled={isToggling}
+                onPress={() => handleChangeAvailability(item, 'active')}
+              >
+                {isToggling ? (
+                  <ActivityIndicator size="small" color={colors.success} style={{ transform: [{ scale: 0.7 }] }} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="check-circle-outline" size={14} color={colors.success} />
+                    <Text style={[styles.toggleActiveText, { color: colors.success }]}>
+                      {isOutOfStock ? 'Restore' : 'Make Available'}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            )}
+
+            {/* STATUS ACTION 2 */}
+            {!isUnavailable ? (
+              <Pressable
+                style={[styles.toggleActiveBtn, { borderColor: '#FECACA', backgroundColor: '#FEE2E2' }]}
+                disabled={isToggling}
+                onPress={() => handleChangeAvailability(item, 'unavailable')}
+              >
+                <MaterialCommunityIcons name="eye-off-outline" size={14} color="#DC2626" />
+                <Text style={[styles.toggleActiveText, { color: '#DC2626' }]}>Disable</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.toggleActiveBtn, { borderColor: '#FDE68A', backgroundColor: '#FEF3C7' }]}
+                disabled={isToggling}
+                onPress={() => handleChangeAvailability(item, 'out_of_stock')}
+              >
+                <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#D97706" />
+                <Text style={[styles.toggleActiveText, { color: '#D97706' }]}>Out of Stock</Text>
+              </Pressable>
+            )}
 
             {/* PERMANENT DELETE */}
             <Pressable
@@ -637,7 +685,8 @@ const styles = StyleSheet.create({
   },
   metricLabel: { color: colors.textMuted, fontSize: 9.5 },
   metricValue: { color: colors.text, fontSize: 12.5, fontWeight: '900', marginTop: 1 },
-  metricWarning: { color: colors.danger },
+  metricWarning: { color: '#D97706' },
+  metricDanger: { color: colors.danger },
   metricGood: { color: colors.success },
   actions: { flexDirection: 'row', gap: 8 },
   editButton: {
