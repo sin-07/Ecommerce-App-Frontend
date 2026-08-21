@@ -215,18 +215,28 @@ export const OrdersScreen: React.FC<Props> = ({ navigation }) => {
     haptics.mediumImpact();
     setUpdatingId(order._id);
     try {
+      const activeItems = (order.items || []).filter((i) => i.status !== 'cancelled');
+      const activeSubtotal = activeItems.reduce(
+        (sum, i) => sum + (i.lineTotal !== undefined ? Number(i.lineTotal) : Number(i.unitPrice * i.quantity) || 0),
+        0
+      );
+      const deliveryFee = Number(order.deliveryFee) || 0;
+      const discount = Number(order.discount) || 0;
+      const currentOrderTotal = Math.max(0, activeSubtotal + deliveryFee - discount);
+
       await dispatch(
         updateOrderStatus({
           id: order._id,
           status: order.status,
-          amountPaid: order.totalAmount,
+          amountPaid: currentOrderTotal,
           paymentStatus: 'PAID'
         })
       ).unwrap();
-      toast.show(`Order #${order._id.slice(-6).toUpperCase()} marked as PAID.`, 'success');
+      toast.show('Payment marked as paid successfully.', 'success', 'Payment Received');
       loadOrders(true);
-    } catch {
-      toast.show('Failed to update payment status.', 'error');
+    } catch (err: any) {
+      const errorMsg = typeof err === 'string' ? err : err?.message || 'Failed to update payment status.';
+      toast.show(errorMsg, 'error', 'Payment Update Failed');
     } finally {
       setUpdatingId(null);
     }
